@@ -7,8 +7,10 @@ Niezmienniki platformy (`mcp-platform-plan/00-overview.md`) i to, gdzie serwer j
 | Ruch tylko od gateway'a: mTLS + wewnętrzny JWT, inaczej 401 | `server.ssl.client-auth: need` z CA wewnętrznym; `InternalJwtFilter` startera (CN `mcp-gateway`, ES256 z JWKS gateway'a, `iss`, `aud`, czas życia <= 60 s, `jti` jednorazowy w Redisie, `tool` == `params.name`, `rid` == `X-Request-Id`). Bez JWT tylko `/actuator/health*`. Test: `GatewayOnlyAccessTest` |
 | Token IdP nigdy do systemu | serwer go nie dostaje; do systemu idzie wyłącznie poświadczenie z C3 (`CredentialContext.require`) |
 | Fail-closed | brak JWKS, Redisa, konfiguracji albo poświadczenia -> 401/503/`credential_required`/brak startu, nigdy przepuszczenie; starter odrzuca relaksacje `dev` w innych profilach |
-| Sekrety nigdy w logach, audycie, wynikach i błędach | nagłówki poświadczeń ukryte po odczycie, `BackendCredential.toString()` bez wartości, redakcja komunikatów w starterze; adapter nie czyta treści błędów systemu. Test: `theCredentialNeverAppearsInTheResultOrTheLog` |
-| "Nie istnieje" i "brak dostępu" -> `not_found_or_denied` | 404 i 403 systemu dają ten sam błąd i tekst. Test: `missingAndForbiddenRecordsLookTheSame` |
+| Sekrety nigdy w logach, audycie, wynikach i błędach | nagłówki poświadczeń ukryte po odczycie, `BackendCredential.toString()` bez wartości, redakcja komunikatów w starterze; adapter nie czyta treści błędów systemu. Test: `thePatNeverAppearsInTheResultOrTheLog` |
+| "Nie istnieje" i "brak dostępu" -> `not_found_or_denied` | 404 i 403 systemu dają ten sam błąd i tekst. Testy: `missingAndForbiddenIssuesLookTheSame` (trzy narzędzia), `aMissingAndAForbiddenProjectLookTheSameAndAreNotSearched` |
+| Bez dowolnego języka zapytań | JQL tylko z `JqlBuilder`: pola ze stałą nazwą, wartości w cudzysłowie z escapowaniem, sprawdzone wcześniej wzorcem; projekt zawsze w zapytaniu i sprawdzony przed nim. Testy: `filterValuesCannotCarryJql`, `JqlBuilderTest` |
+| Treść systemu to dane | tekst użytkowników Jiry tylko pod `untrustedText`, bez `renderedFields` (HTML) |
 | Audyt z `requestId` | jedno zdarzenie C8 `tool_call` na wywołanie (logger `pl.aiwcorpo.mcp.audit`, stdout, czysta linia JSON), `requestId` z JWT |
 
 ## Zasady dla kodu

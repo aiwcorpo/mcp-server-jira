@@ -14,46 +14,71 @@ który dokłada starter.
 
 ```bash
 export JAVA_HOME=/opt/homebrew/Cellar/openjdk@25/25.0.4.1/libexec/openjdk.jdk/Contents/Home
-./mvnw verify                 # build, testy przez TestGateway i atrapę backendu; jar: mcp-app/target/mcp-jira.jar
+./mvnw verify                 # build i 48 testów (TestGateway + StubBackend Jiry); jar: mcp-app/target/mcp-jira.jar
 ```
 
 Testy nie potrzebują Dockera ani środowiska `mcp-platform-dev`: `TestGateway` z `mcp-platform-test` wystawia
-JWKS z kluczy testowych kontraktów i podpisuje wewnętrzne JWT, a `StubBackend` (test) udaje API systemu.
+JWKS z kluczy testowych kontraktów i podpisuje wewnętrzne JWT, a `StubBackend` (test) udaje REST API v2 Jiry
+ze ścieżkami i odpowiedziami jak mock Jiry z `mcp-platform-dev` (`mocks/jira`).
 
 ## Moduły i miejsce każdej rzeczy
 
 | Moduł | Co w nim jest | W tym serwerze |
 | --- | --- | --- |
-| `mcp-core` | domena i porty, czysta Java | `JiraRecord`, `RecordNotFoundException`, port wejściowy `JiraUseCase`, port wyjściowy `JiraResourcePort` |
+| `mcp-core` | domena i porty, czysta Java | `JiraIssue`, `JiraProject` (C7 `Jira::Project{key, category}`), `IssueSearch`, wyjątki domeny, porty `JiraUseCase` i `JiraResourcePort` |
 | `mcp-application` | przypadki użycia (bez Springa) | `JiraService` |
-| `mcp-integration` | adaptery wyjściowe do systemu | `JiraResourceAdapter` (REST, poświadczenie z C3, timeouty), `JiraBackendProperties` |
-| `mcp-tools` | narzędzia MCP, powierzchnia publiczna | `JiraTool` (`get_record`), `JiraToolErrors` (wyjątki domeny -> kody C10) |
+| `mcp-integration` | adaptery wyjściowe do systemu | `JiraResourceAdapter` (REST API v2, PAT z C3, timeouty), `JqlBuilder` (jedyne miejsce, gdzie powstaje JQL), `JiraBackendProperties` |
+| `mcp-tools` | narzędzia MCP, powierzchnia publiczna | `JiraTool` (cztery narzędzia i ich schematy wejścia), `JiraToolViews` (kształt wyników), `JiraToolErrors` (wyjątki domeny -> kody C10) |
 | `mcp-app` | bootstrap, wiring, jedyny jar, testy end-to-end | `McpServerApplication`, `McpToolsConfiguration` (lista narzędzi), `ApplicationWiringConfiguration` |
 
 Zależności idą do środka: `mcp-tools` -> `mcp-application` -> `mcp-core` <- `mcp-integration`; `mcp-app` składa
-całość. Resolver zasobów (`@ResourceRef`, starter beta) dojdzie w `mcp-integration` obok adaptera, bo atrybuty
-zasobu (projekt, klasyfikacja) pochodzą z systemu.
+całość. Resolver zasobów (`@ResourceRef`, starter beta) dojdzie w `mcp-integration` obok adaptera: atrybuty
+`Jira::Project` daje już `JiraResourcePort.findProject` (kategoria projektu z Jiry, `""` bez kategorii).
 
 ## Narzędzia
 
-| Narzędzie | Ryzyko | Argumenty | Wynik i błędy |
-| --- | --- | --- | --- |
-| `get_record` | `READ_ONLY` | `recordId`: 1-64 znaki `[A-Za-z0-9_-]`, zaczyna się literą lub cyfrą | `{id, project, title, status}`; `not_found_or_denied` (404 i 403 z systemu), `credential_required` (brak poświadczenia albo 401 z systemu), `invalid_argument`, `upstream_unavailable`, `internal_error` |
+| Narzędzie (klient: `jira__<nazwa>`) | Ryzyko | Uprawnienie (C9) | Poświadczenie | Argumenty | Wynik |
+| --- | --- | --- | --- | --- | --- |
+| `search_issues` | `READ_ONLY` | `mcp-jira-read` | `user-secret` (PAT, `Bearer`); gateway przyjmuje też `user-oauth` | `project` (`JiraProjectKey`), opcjonalnie `jql_filter{status, assignee, type}` i `text` (do 200 znaków) | `{project, total, returned, issues[{key, type, status, assignee, updated, untrustedText{summary}}]}`, najwyżej 25, najnowsze zmiany najpierw |
+| `get_issue` | `READ_ONLY` | `mcp-jira-read` | jak wyżej | `issueKey` (`JiraIssueKey`) | `{key, project, type, status, assignee, updated, untrustedText{summary, description, descriptionTruncated}}`, opis do 10000 znaków |
+| `add_comment` | `UPDATE` | `mcp-jira-write` | jak wyżej | `issueKey`, `body` (1-10000 znaków, bez znaków sterujących poza `\n`, `\r`, `\t`) | `{issueKey, commentId, created}` |
+| `transition_issue` | `UPDATE` | `mcp-jira-write` | jak wyżej | `issueKey`, `transition` (id albo nazwa przejścia, do 60 znaków) | `{issueKey, transition, status}` |
 
-Nazwa widziana przez klienta to `jira__get_record` (prefiks dokłada gateway, C5).
+Błędy (C10) wszystkich narzędzi: `not_found_or_denied` (404 i 403 z Jiry, ten sam tekst), `credential_required`
+(brak poświadczenia albo 401 z Jiry), `invalid_argument` (zły identyfikator, wartość filtra nieznana Jirze,
+przejście niedostępne albo odrzucone; tekst stały, bez treści z Jiry), `upstream_unavailable`, `internal_error`.
+
+Zasady wyników i zapytań:
+
+- JQL pisze tylko serwer (`JqlBuilder`): `project = "<klucz>"` i dla każdego podanego pola jedna klauzula
+  `AND` z wartością w cudzysłowie i z escapowaniem `\` i `"`. Wartości są wcześniej sprawdzane wzorcem (nazwa:
+  litery, cyfry, spacja, `_./()&'-`; użytkownik: `[A-Za-z0-9][A-Za-z0-9._@+-]{0,99}`), a w `text` znaki składni
+  wyszukiwania pełnotekstowego Jiry są zamieniane na spacje. Surowego JQL nie ma w żadnym argumencie.
+- `search_issues` najpierw pobiera projekt (`GET /rest/api/2/project/{key}`): niewidoczny projekt to
+  `not_found_or_denied`, zanim powstanie zapytanie. Wyniki spoza projektu są odrzucane.
+- Tekst pisany przez użytkowników Jiry (tytuł, opis) jest tylko pod `untrustedText`; reszta pól to wartości
+  ze słowników Jiry. Serwer nie pobiera `renderedFields` (HTML), komentarzy, linków ani pól własnych.
+- `get_issue` oddaje klucz i projekt z odpowiedzi Jiry, nie z argumentu: zgłoszenie przeniesione (`ABC-3`
+  w mocku) wraca jako `DEF-5`.
+- Schemat wejścia każdego narzędzia jest pisany ręcznie (`JiraTool.inputSchemas()`): każdy obiekt ma
+  `additionalProperties: false`, każdy string `maxLength`. Wzorce identyfikatorów są sprawdzane w kodzie,
+  żeby błąd był `invalid_argument` C10; naruszenie samego schematu (długość, nieznane pole) odrzuca MCP SDK
+  przed narzędziem własnym tekstem z `isError: true` (znane ograniczenie startera, do bety).
 
 ## Jak przechodzi wywołanie
 
 ```
-gateway --mTLS (CN mcp-gateway) + JWT C2 (aud mcp-jira, tool get_record) + X-MCP-Credential-->
+gateway --mTLS (CN mcp-gateway) + JWT C2 (aud mcp-jira, tool get_issue) + X-MCP-Credential: Bearer <PAT>-->
   starter: InternalJwtFilter (inaczej 401) -> CredentialHeaderFilter -> AuditingToolCallback (C8)
-  -> JiraTool.getRecord: walidacja recordId
+  -> JiraTool.getIssue: walidacja issueKey
   -> JiraService -> JiraResourceAdapter: CredentialContext.require("jira") + credential::applyTo
-  -> GET {MCP_JIRA_URL}/api/records/{id}
+  -> GET {MCP_JIRA_URL}/rest/api/2/issue/{key}?fields=summary,description,status,issuetype,assignee,project,updated
 ```
 
-Adapter nie podąża za przekierowaniami (nagłówek z poświadczeniem nie może pójść pod inny adres), czyta tylko
-pola domeny i nie wkłada treści odpowiedzi systemu do żadnego komunikatu.
+Ścieżki API Jiry: `GET /rest/api/2/project/{key}`, `GET /rest/api/2/issue/{key}`, `POST /rest/api/2/search`,
+`POST /rest/api/2/issue/{key}/comment`, `GET` i `POST /rest/api/2/issue/{key}/transitions`. Adapter nie podąża
+za przekierowaniami (nagłówek z poświadczeniem nie może pójść pod inny adres), czyta tylko pola domeny i nie
+wkłada treści odpowiedzi Jiry do żadnego komunikatu.
 
 ## Konfiguracja
 
@@ -67,7 +92,7 @@ TLS z CA wewnętrznym, `jti` w Redisie. Profil `dev` wyłącza tylko TLS i słu�
 | `MCP_GATEWAY_JWKS_URI` | JWKS wewnętrznego JWT, np. `https://mcp-gateway.internal:8443/.well-known/jwks.json` | wymagane |
 | `MCP_GATEWAY_ISSUER` | `iss` C2 | `https://mcp-gateway.internal` |
 | `MCP_CONNECT_URL` | strona portalu do połączenia konta, z `{system}`; trafia do `credential_required` | wymagane |
-| `MCP_JIRA_URL` | adres API systemu | wymagane |
+| `MCP_JIRA_URL` | adres bazowy Jiry (bez `/rest/api/2`) | wymagane |
 | `MCP_JIRA_SSL_BUNDLE` | bundle SSL dla HTTPS systemu, np. `mcp-internal-ca`; puste = zaufanie JDK | puste |
 | `MCP_REDIS_HOST`, `MCP_REDIS_PORT`, `MCP_REDIS_USER`, `MCP_REDIS_PASSWORD` | Redis dla jednorazowego `jti` (użytkownik ACL `mcp-jira`, klucze `jti:mcp-jira:*`) | `localhost`, `6379`, `mcp-jira`, puste |
 | `MCP_PORT`, `MCP_BIND` | port i adres nasłuchu | `8443`, `0.0.0.0` |
@@ -78,33 +103,48 @@ https://mcp-jira.internal:8443/mcp`). Bez JWT odpowiada tylko `/actuator/health`
 
 Serwer nie wstaje bez `MCP_GATEWAY_JWKS_URI`, `MCP_CONNECT_URL`, `MCP_JIRA_URL` i plików TLS.
 
-Na hoście ze środowiskiem `mcp-platform-dev` (sprawdzone 2026-10-27 w template). Środowisko ma certyfikaty i
-użytkowników Redisa dla `mcp-jira`, `mcp-confluence`, `mcp-gitlab`, `mcp-servicedesk` i `mcp-opensearch`;
-poniżej użyty jest certyfikat `mcp-jira`, serwer innego systemu bierze `certs/mcp-<system>` i ustawia
-`MCP_REDIS_USER`/`MCP_REDIS_PASSWORD` (`REDIS_MCP_<SYSTEM>_PASSWORD` z `.secrets/dev.env`), inaczej wywołania z
-JWT kończą się 503 (magazyn `jti` niedostępny):
+Na hoście ze środowiskiem `mcp-platform-dev` (`make up`): `scripts/run-dev-host.sh` uruchamia serwer pod
+`https://localhost:18446/mcp`, czyli tam, gdzie szuka go `scripts/run-dev-host.sh` gateway'a, z certyfikatem
+`certs/mcp-jira`, JWKS gateway'a z `https://localhost:18445`, Redisem (użytkownik ACL `mcp-jira`, hasło
+`REDIS_MCP_JIRA_PASSWORD` z `.secrets/dev.env`) i mockiem Jiry na `http://localhost:18081`:
 
 ```bash
+./mvnw verify && scripts/run-dev-host.sh
 dev=../mcp-platform-dev
-export MCP_TLS_STORE_PASSWORD="$(grep '^TLS_STORE_PASSWORD=' $dev/.secrets/dev.env | cut -d= -f2-)"
-export MCP_TLS_KEYSTORE=$dev/certs/mcp-jira/keystore.p12 MCP_TLS_TRUSTSTORE=$dev/certs/ca/truststore.p12
-export MCP_PORT=18490 MCP_BIND=127.0.0.1 MCP_REDIS_PORT=16379 MCP_JIRA_URL=http://localhost:18081
-export MCP_GATEWAY_JWKS_URI=https://localhost:18445/.well-known/jwks.json
-export MCP_CONNECT_URL='http://localhost:18090/connections?system={system}'
-java -jar mcp-app/target/mcp-jira.jar
 curl --cacert $dev/certs/ca/ca.crt --cert $dev/certs/mcp-gateway/tls.crt --key $dev/certs/mcp-gateway/tls.key \
-     --resolve mcp-jira.internal:18490:127.0.0.1 https://mcp-jira.internal:18490/actuator/health   # 200
+     --resolve mcp-jira.internal:18446:127.0.0.1 https://mcp-jira.internal:18446/actuator/health   # 200
 ```
 
 `POST /mcp` bez JWT daje 401, połączenie bez certyfikatu klienta jest zrywane w handshake'u.
+
+### Przebieg M1 z gateway'em i brokerem (procesy hosta)
+
+```bash
+(cd ../mcp-credential-broker && MCP_GATEWAY_JWKS_URI=https://localhost:18445/.well-known/jwks.json \
+   MCP_GATEWAY_TLS_NAME=localhost scripts/run-dev-host.sh) &
+(cd ../mcp-gateway && scripts/run-dev-host.sh) &
+scripts/run-dev-host.sh &
+(cd ../mcp-platform-dev && make pat USER=alice BROKER_URL=https://localhost:18100)
+TOKEN=$(make -s -C ../mcp-platform-dev token USER=alice | tail -1) ../mcp-gateway/scripts/mcp-demo.sh
+python3 ../mcp-platform-dev/scripts/mcpdev.py audit <X-Request-Id tools/call> \
+   --logs gateway.log --logs broker.log --logs mcp-jira.log         # missing: none
+make -C ../mcp-platform-dev jira-auth                                 # PAT alice-pat
+```
+
+Wynik z 2026-10-27: STATUS.md, sekcja "Demo M1".
 
 ## Testy
 
 | Klasa | Co sprawdza |
 | --- | --- |
-| `GetRecordToolTest` | poświadczenie z C3 dociera do systemu; `readOnlyHint`; brak poświadczenia i 401 systemu -> `credential_required`; 404 i 403 -> ten sam `not_found_or_denied`; zły `recordId` nie dociera do systemu; poświadczenie nie trafia do wyniku ani logu |
+| `GetIssueToolTest` | PAT z C3 dociera do Jiry, tylko pola narzędzia w wyniku (bez e-maili, linków, HTML); przeniesione zgłoszenie pod nowym kluczem; brak poświadczenia i 401 -> `credential_required`; 404 = 403; złe klucze i argumenty spoza schematu nie docierają do Jiry; PAT i treść błędu Jiry nie trafiają do wyniku ani logu |
+| `SearchIssuesToolTest` | JQL zbudowany przez serwer (dokładny tekst), wyniki spoza projektu odrzucone; niewidoczny projekt (404 = 403) bez wyszukiwania; `credential_required` (brak i 401); próby wstrzyknięcia JQL w filtrach i `text`, brak argumentu `jql`; 400 Jiry -> `invalid_argument` bez treści z Jiry |
+| `AddCommentToolTest` | komentarz z PAT użytkownika, `UPDATE` w hintach; `credential_required` (brak i 401); 404 = 403; zły klucz, pusty i ze znakiem sterującym `body` |
+| `TransitionIssueToolTest` | przejście po nazwie i po id; niedostępne przejście bez `POST`; 400 Jiry -> `invalid_argument`; `credential_required` (brak i 401); 404 = 403; zły klucz i nazwa przejścia |
+| `ToolListTest` | dokładnie cztery narzędzia z konfiguracji gateway'a, ryzyko w hintach, każdy obiekt schematu zamknięty, każdy string z `maxLength` |
 | `GatewayOnlyAccessTest` | bez JWT 401 (`tools/call`, `ping`, `initialize`), JWT dla innego serwera, innego narzędzia, wariant serwisowy i przeterminowany -> 401; bez JWT tylko health |
-| `JiraServiceTest` | przypadek użycia bez Springa |
+| `JiraServiceTest` | przypadki użycia bez Springa (projekt przed wyszukiwaniem, filtr projektu, wybór przejścia) |
+| `JqlBuilderTest` | klauzule JQL, escapowanie cudzysłowu i backslasha, odrzucenie znaków sterujących |
 
 Nowe narzędzie dostaje test w tym samym stylu: klasa dziedziczy po `ServerTestSupport`, odpowiedź systemu
 dopisuje się w `StubBackend`.
