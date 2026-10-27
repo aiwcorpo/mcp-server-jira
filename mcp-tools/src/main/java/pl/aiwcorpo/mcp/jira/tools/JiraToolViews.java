@@ -76,7 +76,7 @@ final class JiraToolViews {
         }
     }
 
-    private static String name(String name) {
+    static String name(String name) {
         if (name == null) {
             return null;
         }

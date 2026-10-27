@@ -92,7 +92,7 @@ public class JiraService implements JiraUseCase {
                 .filter(t -> t.name().toLowerCase(Locale.ROOT).equals(wanted))
                 .toList();
         if (byName.size() > 1) {
-            throw new AmbiguousTransitionException(byName.stream().map(IssueTransition::id).toList());
+            throw new AmbiguousTransitionException(byName);
         }
         return byName.stream().findFirst().orElseThrow(TransitionNotAvailableException::new);
     }

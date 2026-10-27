@@ -13,7 +13,7 @@ import pl.aiwcorpo.mcp.platform.error.ToolErrorMapping;
 
 /**
  * Domain exceptions of this server as C10 errors with fixed texts; everything else falls through to the
- * starter's defaults. No text here carries a value from the arguments or from Jira's answer.
+ * starter's defaults. No text here carries a value from the arguments; the only text from Jira's answer is a status name, cut and cleaned.
  */
 @Component
 public class JiraToolErrors implements ToolErrorMapping {
@@ -31,11 +31,15 @@ public class JiraToolErrors implements ToolErrorMapping {
                     "The issue has no such transition in its current status."));
         }
         if (ex instanceof AmbiguousTransitionException ambiguous) {
-            // The ids come from Jira, so only plain numbers are repeated; names are never quoted.
-            String ids = String.join(", ", ambiguous.transitionIds().stream()
-                    .filter(id -> NUMERIC_ID.matcher(id).matches()).toList());
+            // Ids are repeated only as plain numbers. The target status is the administrator's name, cut and
+            // cleaned like every name in a result; without it the model would pick an id blind.
+            String choices = String.join(", ", ambiguous.candidates().stream()
+                    .filter(t -> NUMERIC_ID.matcher(t.id()).matches())
+                    .map(t -> t.id() + " -> " + JiraToolViews.name(t.toStatus()))
+                    .toList());
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(),
-                    "Several transitions have that name; call again with the transition id, one of: " + ids + "."));
+                    "Several transitions have that name; call again with the transition id (id -> target status), "
+                            + "one of: " + choices + "."));
         }
         if (ex instanceof RejectedByJiraException rejected) {
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(), switch (rejected.operation()) {
