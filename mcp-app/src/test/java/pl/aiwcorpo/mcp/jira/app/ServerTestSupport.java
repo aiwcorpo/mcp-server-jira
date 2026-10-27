@@ -19,6 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import pl.aiwcorpo.mcp.platform.test.TestGateway;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -33,6 +34,8 @@ abstract class ServerTestSupport {
     static final String SYSTEM = "jira";
     static final String ENDPOINT = "/mcp";
     static final Set<String> CONTRACT_SYSTEMS = contractSystems();
+    static final String PAT = "Bearer jira-pat-of-jkowalski-7f3a";
+    static final JsonMapper JSON = JsonMapper.builder().build();
 
     static final TestGateway GATEWAY = TestGateway.start(SERVER_ID);
     static final StubBackend BACKEND = StubBackend.start();
@@ -88,6 +91,27 @@ abstract class ServerTestSupport {
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
+    }
+
+    static void assertNotFoundOrDenied(McpSchema.CallToolResult result) {
+        assertThat(result.isError()).isTrue();
+        assertThat(text(result)).contains("\"error\":\"not_found_or_denied\"");
+    }
+
+    /** A C10 {@code invalid_argument} (not the MCP SDK's schema text) with the server's own message. */
+    static void assertInvalidArgument(McpSchema.CallToolResult result, String message) {
+        assertThat(result.isError()).isTrue();
+        assertThat(text(result)).contains("\"error\":\"invalid_argument\"", message);
+    }
+
+    McpSchema.Tool listedTool(String name) {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            return client.listTools().tools().stream().filter(t -> t.name().equals(name)).findFirst().orElseThrow();
+        }
+    }
+
+    static JsonNode json(McpSchema.CallToolResult result) {
+        return JSON.readTree(text(result));
     }
 
     static McpSchema.CallToolResult call(McpSyncClient client, String tool, Map<String, Object> arguments) {
