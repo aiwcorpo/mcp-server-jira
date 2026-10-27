@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
@@ -16,6 +17,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
+import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
 import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 
 class JiraServiceTest {
@@ -49,14 +51,54 @@ class JiraServiceTest {
         IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "Open", null, null, null));
 
         assertThat(result.issues()).extracting(JiraIssue::key).containsExactly("ABC-1");
+        assertThat(result.total()).as("hits that were dropped are not counted").isEqualTo(1);
         assertThat(jira.searches).singleElement().satisfies(s -> assertThat(s.status()).isEqualTo("Open"));
     }
 
     @Test
+    void theTotalOfJiraStandsWhenNothingWasDropped() {
+        jira.searchAnswer = new IssueSearchResult(140, List.of(ABC_1));
+
+        assertThat(service.searchIssues(new IssueSearch("ABC", null, null, null, null)).total()).isEqualTo(140);
+    }
+
+    @Test
     void transitionIsMatchedByIdOrByNameIgnoringCase() {
-        assertThat(service.transitionIssue("ABC-1", "21").name()).isEqualTo("In Progress");
-        assertThat(service.transitionIssue("ABC-1", "in progress").id()).isEqualTo("21");
+        assertThat(service.transitionIssue("ABC-1", "21").transition().name()).isEqualTo("In Progress");
+        assertThat(service.transitionIssue("ABC-1", "in progress").transition().id()).isEqualTo("21");
         assertThat(jira.transitioned).containsExactly("ABC-1:21", "ABC-1:21");
+    }
+
+    @Test
+    void aNameMatchesWholeOrNotAtAll() {
+        jira.available = List.of(new IssueTransition("23", "Do", "Doing"), new IssueTransition("31", "Done", "Done"));
+
+        assertThat(service.transitionIssue("ABC-1", "Do").transition().id()).isEqualTo("23");
+        assertThat(service.transitionIssue("ABC-1", "DONE").transition().id()).isEqualTo("31");
+        assertThatThrownBy(() -> service.transitionIssue("ABC-1", "Don"))
+                .isInstanceOf(TransitionNotAvailableException.class);
+        assertThatThrownBy(() -> service.transitionIssue("ABC-1", "on"))
+                .isInstanceOf(TransitionNotAvailableException.class);
+        assertThat(jira.transitioned).containsExactly("ABC-1:23", "ABC-1:31");
+    }
+
+    @Test
+    void aNameSharedByTwoTransitionsIsNotGuessed() {
+        jira.available = List.of(new IssueTransition("21", "Done", "Done"), new IssueTransition("22", "done", "Rejected"));
+
+        assertThatThrownBy(() -> service.transitionIssue("ABC-1", "Done"))
+                .isInstanceOfSatisfying(AmbiguousTransitionException.class,
+                        ex -> assertThat(ex.transitionIds()).containsExactly("21", "22"));
+        assertThat(jira.transitioned).isEmpty();
+        assertThat(service.transitionIssue("ABC-1", "22").transition().toStatus()).isEqualTo("Rejected");
+        assertThat(jira.transitioned).containsExactly("ABC-1:22");
+    }
+
+    @Test
+    void anIdWinsOverAnotherTransitionsName() {
+        jira.available = List.of(new IssueTransition("21", "Start", "Doing"), new IssueTransition("22", "21", "Odd"));
+
+        assertThat(service.transitionIssue("ABC-1", "21").transition().name()).isEqualTo("Start");
     }
 
     @Test
@@ -72,6 +114,36 @@ class JiraServiceTest {
     void aCommentOnAnInvisibleIssueIsNotFoundOrDenied() {
         assertThat(service.addComment("ABC-1", "hello").id()).isEqualTo("100");
         assertThatThrownBy(() -> service.addComment("ABC-2", "hello")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThat(jira.commented).containsExactly("ABC-1");
+    }
+
+    @Test
+    void writesGoToTheKeyJiraReportsAndAreReportedUnderIt() {
+        assertThat(service.addComment("ABC-3", "hello").issueKey()).isEqualTo("DEF-5");
+        TransitionOutcome moved = service.transitionIssue("ABC-3", "21");
+
+        assertThat(moved.issueKey()).isEqualTo("DEF-5");
+        assertThat(jira.commented).containsExactly("DEF-5");
+        assertThat(jira.transitioned).containsExactly("DEF-5:21");
+    }
+
+    @Test
+    void theCommentGoesToJiraAsLiteralText() {
+        service.addComment("ABC-1", "see !https://evil.test/p.png?d=1! and [~admin] and [x|https://evil.test]");
+
+        assertThat(jira.commentBody).isEqualTo(
+                "{noformat}\nsee !https://evil.test/p.png?d=1! and [~admin] and [x|https://evil.test]\n{noformat}");
+    }
+
+    @Test
+    void aNoformatTagInTheTextCannotEndTheBlock() {
+        service.addComment("ABC-1", "a{noformat}!https://evil.test/p.png!{NOFORMAT:title=x}b{ noformat}c");
+
+        assertThat(jira.commentBody).startsWith("{noformat}\n").endsWith("\n{noformat}");
+        String inside = jira.commentBody.substring("{noformat}\n".length(),
+                jira.commentBody.length() - "\n{noformat}".length());
+        assertThat(inside).doesNotContainIgnoringCase("{noformat").doesNotContainPattern("(?i)\\{\\s*noformat");
+        assertThat(inside).contains("!https://evil.test/p.png!");
     }
 
     private static JiraIssue issue(String key, String project) {
@@ -82,8 +154,13 @@ class JiraServiceTest {
     private static final class FakeJira implements JiraResourcePort {
 
         final Map<String, JiraIssue> issues = Map.of("ABC-1", ABC_1);
+        /** Keys Jira still resolves, to the key it reports now. */
+        final Map<String, String> canonical = Map.of("ABC-1", "ABC-1", "ABC-3", "DEF-5", "DEF-5", "DEF-5");
         final List<IssueSearch> searches = new ArrayList<>();
         final List<String> transitioned = new ArrayList<>();
+        final List<String> commented = new ArrayList<>();
+        String commentBody;
+        List<IssueTransition> available = List.of(new IssueTransition("21", "In Progress", "In Progress"));
         IssueSearchResult searchAnswer = new IssueSearchResult(0, List.of());
 
         @Override
@@ -97,6 +174,11 @@ class JiraServiceTest {
         }
 
         @Override
+        public Optional<String> canonicalIssueKey(String issueKey) {
+            return Optional.ofNullable(canonical.get(issueKey));
+        }
+
+        @Override
         public IssueSearchResult search(IssueSearch search, int maxResults) {
             searches.add(search);
             return searchAnswer;
@@ -104,16 +186,17 @@ class JiraServiceTest {
 
         @Override
         public Optional<JiraComment> addComment(String issueKey, String body) {
-            return issues.containsKey(issueKey)
-                    ? Optional.of(new JiraComment(issueKey, "100", "2026-10-27T10:00:00.000+0000"))
-                    : Optional.empty();
+            if (!canonical.containsValue(issueKey)) {
+                return Optional.empty();
+            }
+            commented.add(issueKey);
+            commentBody = body;
+            return Optional.of(new JiraComment(issueKey, "100", "2026-10-27T10:00:00.000+0000"));
         }
 
         @Override
         public Optional<List<IssueTransition>> transitions(String issueKey) {
-            return issues.containsKey(issueKey)
-                    ? Optional.of(List.of(new IssueTransition("21", "In Progress", "In Progress")))
-                    : Optional.empty();
+            return canonical.containsValue(issueKey) ? Optional.of(available) : Optional.empty();
         }
 
         @Override

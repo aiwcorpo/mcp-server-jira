@@ -1,7 +1,9 @@
 package pl.aiwcorpo.mcp.jira.tools;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
+import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.RejectedByJiraException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
@@ -16,6 +18,8 @@ import pl.aiwcorpo.mcp.platform.error.ToolErrorMapping;
 @Component
 public class JiraToolErrors implements ToolErrorMapping {
 
+    private static final Pattern NUMERIC_ID = Pattern.compile("[0-9]{1,10}");
+
     @Override
     public Optional<SafeError> map(Throwable ex) {
         if (ex instanceof NotFoundOrDeniedException) {
@@ -25,6 +29,13 @@ public class JiraToolErrors implements ToolErrorMapping {
         if (ex instanceof TransitionNotAvailableException) {
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(),
                     "The issue has no such transition in its current status."));
+        }
+        if (ex instanceof AmbiguousTransitionException ambiguous) {
+            // The ids come from Jira, so only plain numbers are repeated; names are never quoted.
+            String ids = String.join(", ", ambiguous.transitionIds().stream()
+                    .filter(id -> NUMERIC_ID.matcher(id).matches()).toList());
+            return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(),
+                    "Several transitions have that name; call again with the transition id, one of: " + ids + "."));
         }
         if (ex instanceof RejectedByJiraException rejected) {
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(), switch (rejected.operation()) {

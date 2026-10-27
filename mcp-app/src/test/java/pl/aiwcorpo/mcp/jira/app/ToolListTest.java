@@ -33,6 +33,24 @@ class ToolListTest extends ServerTestSupport {
         }
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void keysCarryThePatternsOfTheContractsAndTheFilterIsBounded() {
+        McpSchema.Tool getIssue = listedTool("get_issue");
+        Map<String, Object> issueKey = ((Map<String, Map<String, Object>>) getIssue.inputSchema().get("properties"))
+                .get("issueKey");
+        assertThat(issueKey).containsEntry("pattern", "^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}$")
+                .containsEntry("maxLength", 21);
+
+        Map<String, Map<String, Object>> search =
+                (Map<String, Map<String, Object>>) listedTool("search_issues").inputSchema().get("properties");
+        assertThat(search.get("project")).containsEntry("pattern", "^[A-Z][A-Z0-9_]{1,9}$");
+        Map<String, Object> filter = search.get("jql_filter");
+        assertThat(filter).containsEntry("additionalProperties", false).doesNotContainKey("required");
+        ((Map<String, Map<String, Object>>) filter.get("properties")).forEach((name, property) ->
+                assertThat(property).as(name).containsKeys("minLength", "maxLength"));
+    }
+
     @SuppressWarnings("unchecked")
     private static void assertClosed(String tool, Map<String, Object> schema) {
         assertThat(schema).as(tool).containsEntry("additionalProperties", false);

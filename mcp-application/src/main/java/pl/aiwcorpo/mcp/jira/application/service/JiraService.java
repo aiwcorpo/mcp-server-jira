@@ -2,6 +2,8 @@ package pl.aiwcorpo.mcp.jira.application.service;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
@@ -9,6 +11,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
+import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
 import pl.aiwcorpo.mcp.jira.core.port.in.JiraUseCase;
 import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 
@@ -43,25 +46,54 @@ public class JiraService implements JiraUseCase {
         List<JiraIssue> inProject = found.issues().stream()
                 .filter(issue -> search.projectKey().equals(issue.projectKey()))
                 .toList();
-        return new IssueSearchResult(found.total(), inProject);
+        // A total that still counts what was dropped would tell the model how many hits it may not see.
+        int total = inProject.size() == found.issues().size() ? found.total() : inProject.size();
+        return new IssueSearchResult(total, inProject);
     }
 
+    /**
+     * Both writing tools first ask Jira for the key it knows the issue under: an issue moved to another project
+     * still answers to its old key, and the write must go to, and be reported under, the key that is really
+     * written to. The visibility check of that read is the same one the write would meet.
+     */
     @Override
     public JiraComment addComment(String issueKey, String body) {
-        return jira.addComment(issueKey, body).orElseThrow(NotFoundOrDeniedException::new);
+        String key = canonicalKey(issueKey);
+        return jira.addComment(key, CommentText.asLiteral(body)).orElseThrow(NotFoundOrDeniedException::new);
     }
 
     @Override
-    public IssueTransition transitionIssue(String issueKey, String transition) {
-        List<IssueTransition> available = jira.transitions(issueKey).orElseThrow(NotFoundOrDeniedException::new);
-        IssueTransition chosen = available.stream()
-                .filter(t -> t.id().equals(transition)
-                        || t.name().toLowerCase(Locale.ROOT).equals(transition.toLowerCase(Locale.ROOT)))
-                .findFirst()
-                .orElseThrow(TransitionNotAvailableException::new);
-        if (!jira.transition(issueKey, chosen.id())) {
+    public TransitionOutcome transitionIssue(String issueKey, String transition) {
+        String key = canonicalKey(issueKey);
+        List<IssueTransition> available = jira.transitions(key).orElseThrow(NotFoundOrDeniedException::new);
+        IssueTransition chosen = choose(available, transition);
+        if (!jira.transition(key, chosen.id())) {
             throw new NotFoundOrDeniedException();
         }
-        return chosen;
+        return new TransitionOutcome(key, chosen);
+    }
+
+    private String canonicalKey(String issueKey) {
+        return jira.canonicalIssueKey(issueKey).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    /**
+     * An id wins over a name, a name must match whole (ignoring case) and exactly one transition. Jira lets
+     * several transitions leaving one status share a name, and picking the first would move the issue somewhere
+     * the caller did not name.
+     */
+    private static IssueTransition choose(List<IssueTransition> available, String requested) {
+        Optional<IssueTransition> byId = available.stream().filter(t -> t.id().equals(requested)).findFirst();
+        if (byId.isPresent()) {
+            return byId.get();
+        }
+        String wanted = requested.toLowerCase(Locale.ROOT);
+        List<IssueTransition> byName = available.stream()
+                .filter(t -> t.name().toLowerCase(Locale.ROOT).equals(wanted))
+                .toList();
+        if (byName.size() > 1) {
+            throw new AmbiguousTransitionException(byName.stream().map(IssueTransition::id).toList());
+        }
+        return byName.stream().findFirst().orElseThrow(TransitionNotAvailableException::new);
     }
 }

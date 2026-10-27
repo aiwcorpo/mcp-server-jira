@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,8 +38,11 @@ class GetIssueToolTest extends ServerTestSupport {
             assertThat(json(result).at("/project").asString()).isEqualTo("ABC");
             assertThat(json(result).at("/status").asString()).isEqualTo("To Do");
             assertThat(json(result).at("/type").asString()).isEqualTo("Task");
-            assertThat(json(result).at("/untrustedText/summary").asString()).isEqualTo("Login page returns 500");
-            assertThat(json(result).at("/untrustedText/description").asString()).startsWith("Test issue ABC-1.");
+            assertThat(json(result).at("/summary/text").asString()).isEqualTo("Login page returns 500");
+            assertThat(json(result).at("/summary/kind").asString()).isEqualTo("untrusted-data");
+            assertThat(json(result).at("/summary/format").asString()).isEqualTo("text/plain");
+            assertThat(json(result).at("/summary/truncated").asBoolean()).isFalse();
+            assertThat(json(result).at("/description/text").asString()).startsWith("Test issue ABC-1.");
             assertThat(text(result)).as("only the fields of the tool leave the adapter")
                     .doesNotContain("alice@corp.test", "Salary review", "HR-1", "<p>", "jira.internal");
         }
@@ -97,7 +101,7 @@ class GetIssueToolTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             for (String key : new String[] {"abc-1", "ABC-0", "ABC-01", "ABC_1", "ABC-1/comment", "../ABC-1",
                     "ABC-1?x=1", "ABCDEFGHIJK-1"}) {
-                assertInvalidArgument(call(client, "get_issue", Map.of("issueKey", key)), "issueKey must be");
+                assertInvalidArgument(call(client, "get_issue", Map.of("issueKey", key)), "issueKey does not match the required format");
             }
         }
         assertThat(BACKEND.requests()).isEmpty();
@@ -106,10 +110,13 @@ class GetIssueToolTest extends ServerTestSupport {
     @Test
     void argumentsOutsideTheSchemaNeverReachJira() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
-            assertThat(call(client, "get_issue", Map.of("issueKey", "ABC-1", "fields", "*all")).isError()).isTrue();
-            assertThat(call(client, "get_issue", Map.of("issueKey", "ABC-1" + "0".repeat(30))).isError()).isTrue();
-            assertThat(call(client, "get_issue", Map.of()).isError()).isTrue();
-            assertThat(call(client, "get_issue", Map.of("issueKey", "A-1")).isError()).isTrue();
+            assertInvalidArgument(call(client, "get_issue", Map.of("issueKey", "ABC-1", "fields", "*all")),
+                    "unknown arguments are not allowed");
+            assertInvalidArgument(call(client, "get_issue", Map.of("issueKey", "ABC-1" + "0".repeat(30))),
+                    "issueKey is longer than 21 characters");
+            assertInvalidArgument(call(client, "get_issue", Map.of()), "issueKey is required");
+            assertInvalidArgument(call(client, "get_issue", Map.of("issueKey", "A-1")),
+                    "issueKey is shorter than 4 characters");
         }
         assertThat(BACKEND.requests()).isEmpty();
     }
@@ -124,5 +131,74 @@ class GetIssueToolTest extends ServerTestSupport {
         }
         assertThat(output.getAll()).contains("\"tool\":\"get_issue\"").doesNotContain("jira-pat")
                 .as("Jira's error body stays out of the log").doesNotContain("boom");
+    }
+
+    @Test
+    void anUnknownArgumentNameStaysOutOfTheResultAndTheLog(CapturedOutput output) {
+        String name = "zzForgedArgument";
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-1", name, "x"));
+
+            assertInvalidArgument(result, "unknown arguments are not allowed");
+            assertThat(text(result)).doesNotContain(name);
+        }
+        assertThat(output.getAll()).doesNotContain(name);
+        assertThat(BACKEND.requests()).isEmpty();
+    }
+
+    @Test
+    void anUnreadableBodyStaysOutOfTheResultAndTheLog(CapturedOutput output) {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-10"));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(text(result)).contains("\"error\":\"internal_error\"").doesNotContain(StubBackend.BODY_MARKER);
+        }
+        assertThat(output.getAll()).contains("BackendResponseException").doesNotContain(StubBackend.BODY_MARKER);
+    }
+
+    @Test
+    void anEmptyAnswerIsTheBackendsFaultNotAMissingIssue() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(text(call(client, "get_issue", Map.of("issueKey", "ABC-11"))))
+                    .contains("\"error\":\"internal_error\"");
+        }
+    }
+
+    @Test
+    void anIssueWithoutKeyIsTheBackendsFault() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(text(call(client, "get_issue", Map.of("issueKey", "ABC-12"))))
+                    .contains("\"error\":\"internal_error\"");
+        }
+    }
+
+    @Test
+    void aRedirectIsNotFollowedAndNotReadAsMissing() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-14"));
+
+            assertThat(text(result)).contains("\"error\":\"internal_error\"");
+            assertThat(BACKEND.elsewhereHits()).as("the PAT must not follow the Location").isEmpty();
+        }
+    }
+
+    @Test
+    void aSlowJiraTimesOut() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            long start = System.nanoTime();
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-16"));
+
+            assertThat(text(result)).contains("\"error\":\"upstream_unavailable\"");
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(StubBackend.SLOW_MILLIS));
+        }
+    }
+
+    @Test
+    void anOversizedBodyIsCutOff() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(text(call(client, "get_issue", Map.of("issueKey", "ABC-13"))))
+                    .contains("\"error\":\"internal_error\"");
+        }
     }
 }

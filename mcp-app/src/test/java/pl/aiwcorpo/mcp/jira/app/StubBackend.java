@@ -10,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -24,13 +25,23 @@ import java.util.regex.Pattern;
  *       the body; others 404;</li>
  *   <li>search ({@code POST /rest/api/2/search}): ABC-1, ABC-2 and DEF-1 (a foreign issue the server must
  *       drop); a JQL with status "Nope" is 400, like a status Jira does not know;</li>
- *   <li>comments and transitions on {@code ABC-1}; transition 31 ("Done") is 400 (needs a resolution).</li>
+ *   <li>comments and transitions on {@code ABC-1} and {@code DEF-5}; transition 31 ("Done") is 400 (needs a
+ *       resolution);</li>
+ *   <li>{@code ABC-7}: two transitions named "Done" (41 to Done, 42 to Rejected);</li>
+ *   <li>unusable answers: {@code ABC-8} transition POST redirects, {@code ABC-9} comment POST redirects,
+ *       {@code ABC-10} 200 that is not JSON (carries {@link #BODY_MARKER}), {@code ABC-11} 200 without body,
+ *       {@code ABC-12} issue without key, {@code ABC-13} a body over the size limit, {@code ABC-14} issue GET
+ *       redirects, {@code ABC-15} transition POST answers 200 instead of 204, {@code ABC-16} answers after
+ *       {@link #SLOW_MILLIS}, {@code ABC-17} comment answer without id.</li>
  * </ul>
  * Any request with {@link #EXPIRED_CREDENTIAL} is answered 401, like a revoked PAT.
  */
 final class StubBackend {
 
     static final String EXPIRED_CREDENTIAL = "Bearer expired-pat-of-jkowalski";
+    static final String BODY_MARKER = "SECRETBODYTOKEN123";
+    static final long SLOW_MILLIS = 4_000;
+    static final int HUGE_BYTES = 256 * 1024;
 
     private static final Pattern PROJECT = Pattern.compile("/rest/api/2/project/([^/]+)");
     private static final Pattern ISSUE = Pattern.compile("/rest/api/2/issue/([^/]+)(/comment|/transitions)?");
@@ -40,18 +51,29 @@ final class StubBackend {
     }
 
     private final HttpServer server;
+    private final HttpServer elsewhere;
     private final List<Request> requests = new CopyOnWriteArrayList<>();
+    private final List<String> elsewhereHits = new CopyOnWriteArrayList<>();
 
-    private StubBackend(HttpServer server) {
+    private StubBackend(HttpServer server, HttpServer elsewhere) {
         this.server = server;
+        this.elsewhere = elsewhere;
     }
 
     static StubBackend start() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-            StubBackend backend = new StubBackend(server);
+            HttpServer elsewhere = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+            StubBackend backend = new StubBackend(server, elsewhere);
             server.createContext("/rest/api/2/", backend::handle);
+            elsewhere.createContext("/", exchange -> {
+                backend.elsewhereHits.add(String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")));
+                respond(exchange, 200, "{}");
+            });
+            // The slow issue must not hold up the requests of the next test.
+            server.setExecutor(Executors.newCachedThreadPool());
             server.start();
+            elsewhere.start();
             return backend;
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
@@ -71,8 +93,14 @@ final class StubBackend {
         return requests.stream().map(Request::authorization).toList();
     }
 
+    /** Authorization headers that reached the redirect target. */
+    List<String> elsewhereHits() {
+        return List.copyOf(elsewhereHits);
+    }
+
     void reset() {
         requests.clear();
+        elsewhereHits.clear();
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -135,30 +163,62 @@ final class StubBackend {
 
     private void issue(HttpExchange exchange, String method, String key, String sub, String authorization,
             String body) throws IOException {
+        boolean write = "POST".equals(method);
         if ("ABC-403".equals(key)) {
             respond(exchange, 403, "{\"errorMessages\":[\"You do not have the permission to see the specified issue.\"]}");
         } else if ("ABC-500".equals(key)) {
             respond(exchange, 500, "{\"error\":\"boom\",\"seen\":\"" + authorization + "\"}");
-        } else if (sub == null && "GET".equals(method) && "ABC-1".equals(key)) {
+        } else if (sub == null && !write && "ABC-1".equals(key)) {
             respond(exchange, 200, ISSUE_ABC_1);
-        } else if (sub == null && "GET".equals(method) && "ABC-3".equals(key)) {
-            respond(exchange, 200, """
-                    {"id":"10205","key":"DEF-5","fields":{"summary":"Migrate build cache (moved from ABC-3)",
-                     "project":{"key":"DEF"},"issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,
-                     "updated":"2026-10-22T08:00:00.000+0000","description":null}}""");
-        } else if ("/comment".equals(sub) && "POST".equals(method) && "ABC-1".equals(key)) {
+        } else if (sub == null && !write && "ABC-3".equals(key)) {
+            respond(exchange, 200, MOVED_ISSUE);
+        } else if (sub == null && !write && "DEF-5".equals(key)) {
+            respond(exchange, 200, MOVED_ISSUE);
+        } else if (sub == null && !write && PLAIN_ISSUES.contains(key)) {
+            respond(exchange, 200, ISSUE_ABC_1.replace("\"key\":\"ABC-1\"", "\"key\":\"" + key + "\""));
+        } else if (sub == null && !write && "ABC-10".equals(key)) {
+            respond(exchange, 200, "<html>" + BODY_MARKER + " login</html>");
+        } else if (sub == null && !write && "ABC-11".equals(key)) {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        } else if (sub == null && !write && "ABC-12".equals(key)) {
+            respond(exchange, 200, "{\"id\":\"10112\",\"fields\":{\"summary\":\"no key\"}}");
+        } else if (sub == null && !write && "ABC-13".equals(key)) {
+            respond(exchange, 200, "{\"key\":\"ABC-13\",\"fields\":{\"description\":\"" + "x".repeat(HUGE_BYTES) + "\"}}");
+        } else if (sub == null && !write && "ABC-14".equals(key)) {
+            redirect(exchange);
+        } else if (sub == null && !write && "ABC-16".equals(key)) {
+            sleep();
+            respond(exchange, 200, ISSUE_ABC_1);
+        } else if ("/comment".equals(sub) && write && ("ABC-1".equals(key) || "DEF-5".equals(key))) {
             respond(exchange, 201, """
                     {"self":"http://jira.internal:8080/rest/api/2/issue/10100/comment/10500","id":"10500",
                      "author":{"name":"jkowalski","emailAddress":"jkowalski@corp.test"},"body":%s,
                      "created":"2026-10-27T10:00:00.000+0000","updated":"2026-10-27T10:00:00.000+0000"}"""
                     .formatted(body.isEmpty() ? "\"\"" : "\"(echo)\""));
-        } else if ("/transitions".equals(sub) && "GET".equals(method) && "ABC-1".equals(key)) {
+        } else if ("/comment".equals(sub) && write && "ABC-9".equals(key)) {
+            redirect(exchange);
+        } else if ("/comment".equals(sub) && write && "ABC-17".equals(key)) {
+            respond(exchange, 201, "{\"created\":\"2026-10-27T10:00:00.000+0000\"}");
+        } else if ("/transitions".equals(sub) && !write && ("ABC-1".equals(key) || "DEF-5".equals(key)
+                || "ABC-8".equals(key) || "ABC-15".equals(key))) {
             respond(exchange, 200, """
                     {"expand":"transitions","transitions":[
                      {"id":"11","name":"To Do","to":{"name":"To Do","statusCategory":{"key":"new"}}},
                      {"id":"21","name":"In Progress","to":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}},
                      {"id":"31","name":"Done","to":{"name":"Done","statusCategory":{"key":"done"}}}]}""");
-        } else if ("/transitions".equals(sub) && "POST".equals(method) && "ABC-1".equals(key)) {
+        } else if ("/transitions".equals(sub) && !write && "ABC-7".equals(key)) {
+            respond(exchange, 200, """
+                    {"expand":"transitions","transitions":[
+                     {"id":"41","name":"Done","to":{"name":"Done","statusCategory":{"key":"done"}}},
+                     {"id":"42","name":"done","to":{"name":"Rejected","statusCategory":{"key":"done"}}},
+                     {"id":"43","name":"Do","to":{"name":"Doing","statusCategory":{"key":"indeterminate"}}}]}""");
+        } else if ("/transitions".equals(sub) && write && "ABC-8".equals(key)) {
+            redirect(exchange);
+        } else if ("/transitions".equals(sub) && write && "ABC-15".equals(key)) {
+            respond(exchange, 200, "{}");
+        } else if ("/transitions".equals(sub) && write && ("ABC-1".equals(key) || "DEF-5".equals(key)
+                || "ABC-7".equals(key))) {
             if (body.contains("\"31\"")) {
                 respond(exchange, 400, "{\"errorMessages\":[],\"errors\":{\"resolution\":\"Resolution is required.\"}}");
             } else {
@@ -169,6 +229,30 @@ final class StubBackend {
             respond(exchange, 404, "{\"errorMessages\":[\"Issue Does Not Exist\"],\"errors\":{}}");
         }
     }
+
+    private void redirect(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().set("Location",
+                "http://127.0.0.1:" + elsewhere.getAddress().getPort() + "/login");
+        exchange.sendResponseHeaders(302, -1);
+        exchange.close();
+    }
+
+    private static void sleep() {
+        try {
+            Thread.sleep(SLOW_MILLIS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Issues that read like ABC-1 under their own key; what differs is how the writes to them answer. */
+    private static final java.util.Set<String> PLAIN_ISSUES = java.util.Set.of("ABC-7", "ABC-8", "ABC-9", "ABC-15", "ABC-17");
+
+    /** ABC-3 after a move to project DEF: Jira answers the old key with the issue under its new key. */
+    private static final String MOVED_ISSUE = """
+            {"id":"10205","key":"DEF-5","fields":{"summary":"Migrate build cache (moved from ABC-3)",
+             "project":{"key":"DEF"},"issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,
+             "updated":"2026-10-22T08:00:00.000+0000","description":null}}""";
 
     /** ABC-1 as in mocks/jira, with fields the server does not ask for and must not return. */
     private static final String ISSUE_ABC_1 = """

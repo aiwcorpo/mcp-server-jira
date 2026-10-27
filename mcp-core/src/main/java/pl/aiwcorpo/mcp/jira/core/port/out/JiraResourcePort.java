@@ -22,6 +22,9 @@ public interface JiraResourcePort {
     /** Issues of {@code search.projectKey()} matching the search, at most {@code maxResults}. */
     IssueSearchResult search(IssueSearch search, int maxResults);
 
+    /** The key Jira knows the issue under now (a moved issue answers with its new key); empty when not visible. */
+    Optional<String> canonicalIssueKey(String issueKey);
+
     /** Empty when the issue is not visible to the caller. */
     Optional<JiraComment> addComment(String issueKey, String body);
 

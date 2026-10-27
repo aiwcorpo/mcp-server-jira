@@ -24,6 +24,8 @@ export MCP_REDIS_HOST=localhost MCP_REDIS_PORT=16379 MCP_REDIS_USER=mcp-jira
 MCP_REDIS_PASSWORD="$(secret REDIS_MCP_JIRA_PASSWORD)"
 export MCP_REDIS_PASSWORD
 export MCP_JIRA_URL="${MCP_JIRA_URL:-http://localhost:18081}"
+# The mock of mcp-platform-dev answers over plain http; the server accepts that outside dev only on request.
+export MCP_JIRA_ALLOW_PLAIN_HTTP="${MCP_JIRA_ALLOW_PLAIN_HTTP:-true}"
 export MCP_CONNECT_URL="${MCP_CONNECT_URL:-http://localhost:18090/connections?system={system}}"
 
 exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" -jar "$jar"

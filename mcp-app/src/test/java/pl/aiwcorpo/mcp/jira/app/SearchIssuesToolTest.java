@@ -29,7 +29,9 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(found.at("/project").asString()).isEqualTo("ABC");
             assertThat(found.at("/returned").asInt()).isEqualTo(2);
             assertThat(found.at("/issues/0/key").asString()).isEqualTo("ABC-1");
-            assertThat(found.at("/issues/0/untrustedText/summary").asString()).isEqualTo("Login page returns 500");
+            assertThat(found.at("/issues/0/summary/text").asString()).isEqualTo("Login page returns 500");
+            assertThat(found.at("/issues/0/summary/kind").asString()).isEqualTo("untrusted-data");
+            assertThat(found.at("/total").asInt()).as("the dropped hit is not counted").isEqualTo(2);
             assertThat(found.at("/issues/1/assignee").asString()).isEqualTo("alice");
             assertThat(text(result)).as("an issue of another project is dropped").doesNotContain("DEF-1")
                     .doesNotContain("alice@corp.test", "Alice Tester");
@@ -83,7 +85,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
     void anInvalidProjectKeyIsRejectedBeforeJira() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             for (String project : new String[] {"abc", "1AB", "AB-C", "ABC OR", "AB\"C"}) {
-                assertInvalidArgument(call(client, "search_issues", Map.of("project", project)), "project must be");
+                assertInvalidArgument(call(client, "search_issues", Map.of("project", project)), "project does not match the required format");
             }
         }
         assertThat(BACKEND.requests()).isEmpty();
@@ -102,11 +104,17 @@ class SearchIssuesToolTest extends ServerTestSupport {
                     "text must be");
             assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "text", "a\nb")),
                     "text must be");
-            assertThat(call(client, "search_issues", Map.of("project", "A")).isError()).isTrue();
-            assertThat(call(client, "search_issues", Map.of("project", "ABC", "jql", "project = HR")).isError())
-                    .as("no raw JQL argument exists").isTrue();
-            assertThat(call(client, "search_issues", Map.of("project", "ABC",
-                    "jql_filter", Map.of("reporter", "alice"))).isError()).isTrue();
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "text", "AND OR NOT")),
+                    "text must be");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "A")), "project is shorter than 2");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "jql", "project = HR")),
+                    "unknown arguments are not allowed");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC",
+                    "jql_filter", Map.of("reporter", "alice"))), "unknown arguments are not allowed");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC",
+                    "jql_filter", Map.of("status", "x".repeat(61)))), "jql_filter");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "text", "x".repeat(201))),
+                    "text is longer than 200 characters");
         }
         assertThat(BACKEND.requests()).isEmpty();
     }
@@ -120,5 +128,15 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertInvalidArgument(result, "Jira does not know one of the values");
             assertThat(text(result)).doesNotContain("Nope");
         }
+    }
+
+    @Test
+    void booleanOperatorsInTheTextAreNotPassedToJira() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(call(client, "search_issues", Map.of("project", "ABC", "text", "login AND page OR NOT")).isError())
+                    .isFalse();
+        }
+        assertThat(JSON.readTree(BACKEND.requests().get(1).body()).at("/jql").asString())
+                .contains("text ~ \"login page\"");
     }
 }
