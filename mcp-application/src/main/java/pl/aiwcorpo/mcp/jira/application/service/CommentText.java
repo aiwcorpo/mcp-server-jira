@@ -7,7 +7,8 @@ import java.util.regex.Pattern;
  * markup written by a model that read hostile text is an attack: {@code !https://host/p.png?d=...!} makes the
  * browser of everyone who opens the issue fetch an external URL, {@code [text|https://host]} is a link,
  * {@code [~user]} notifies a user. Inside a {@code {noformat}} block Jira renders none of that, so the whole text
- * goes there, and the only thing that could end the block, another {@code {noformat}} tag, is renamed so that it can no longer close the block.
+ * goes there, and the only thing that could end the block, another {@code {noformat}} tag, is renamed so that
+ * it can no longer close it.
  */
 final class CommentText {
 
