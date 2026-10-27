@@ -1,8 +1,8 @@
 # STATUS - mcp-server-jira (ws-04)
 
-M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-4, 48 testów na stubie Jiry, demo M1 przez gateway i broker na procesach hosta: `get_issue ABC-1` z mocka Jiry z PAT alice, audyt jednego `requestId` z trzech komponentów (missing: none).
+M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-5, 48 testów na stubie Jiry, demo M1 przez gateway i broker na procesach hosta: `get_issue ABC-1` z mocka Jiry z PAT alice, audyt jednego `requestId` z trzech komponentów (missing: none).
 
-Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-4`
+Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-5`
 (kontrakty 2.0.2). M2 (manifest C6, `@ResourceRef`, `QueryScope`, `ResultFilter`) nie jest zaczęty.
 
 ## Co działa
@@ -37,7 +37,7 @@ Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.
 ## Demo M1 (2026-10-27, procesy hosta)
 
 Infrastruktura `mcp-platform-dev` działała (7 kontenerów, bez restartu), porty 18000, 18100, 18445, 18446 wolne.
-Gateway d4fbf98, broker 5a5dbb4, mcp-jira f0da7e1 (jar z `./mvnw verify`). Logi:
+Gateway d4fbf98, broker 5a5dbb4, mcp-jira f0da7e1 na 3.0.0-alpha-4 (jar z `./mvnw verify`). Logi:
 `<scratchpad>/jira-demo/`.
 
 ```bash
@@ -72,6 +72,12 @@ components with events: ['broker', 'gateway', 'server']; missing: none
 `make jira-auth`: żądania mcp-jira (`GET /rest/api/2/issue/ABC-1?fields=summary,description,...`,
 `GET /rest/api/2/project/ABC`, `POST /rest/api/2/search`) z `PAT alice-pat`. `grep -c alice-pat` w
 gateway.log, broker.log, mcp-jira.log: 0, 0, 0. Procesy zatrzymane po demo.
+
+Powtórka na starterze 3.0.0-alpha-5 (ten sam dzień, te same komendy; mcp-jira bez profilu `dev`, log "No
+active profile set", mTLS z certyfikatem `mcp-jira` i JWKS gateway'a): `tools/list` z czterema narzędziami,
+`get_issue ABC-1` z mocka, audyt `01a17e27-692c-7dce-9dc7-1b8894d235a4` -> policy_decision allow,
+credential_resolve ok, tool_call ok (server), tool_call allow (gateway), missing: none; `alice-pat` w logach 0, 0,
+0. Logi: `<scratchpad>/jira-demo-a5/`.
 
 ## Odstępstwa
 
