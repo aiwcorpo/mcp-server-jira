@@ -54,6 +54,48 @@ class GetIssueToolTest extends ServerTestSupport {
     }
 
     @Test
+    void anUnassignedIssueIsAnOkResultWithNullAssignee() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-3"));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(json(result).path("assignee").isNull()).isTrue();
+            assertThat(json(result).path("description").isNull()).isTrue();
+        }
+    }
+
+    @Test
+    void theDescriptionIsPlainTextWithoutWikiMarkupImagesAndMacros() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-18"));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(json(result).at("/description/format").asString()).isEqualTo("text/plain");
+            assertThat(json(result).at("/description/text").asString()).isEqualTo("""
+                    Steps
+                    - open the login page
+                    - see
+
+                    int a = 1;
+
+                    Ask bob or read the guide (https://wiki.corp.test/g) and https://wiki.corp.test/h. Hidden: \
+                    !https://evil.test/q.png ! and""");
+            assertThat(text(result)).doesNotContain("r.png", "{code", "[~");
+        }
+    }
+
+    @Test
+    void acceptsTheVirtualServerClaimsOfACallThroughALink() {
+        try (McpSyncClient client = clientWithToken(
+                user -> user.username("jkowalski").virtualServer("team-delivery", Map.of()), PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-1"));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(json(result).at("/key").asString()).isEqualTo("ABC-1");
+        }
+    }
+
+    @Test
     void aMovedIssueIsReportedUnderItsNewKeyAndProject() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-3"));

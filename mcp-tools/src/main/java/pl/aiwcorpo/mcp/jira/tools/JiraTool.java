@@ -3,6 +3,7 @@ package pl.aiwcorpo.mcp.jira.tools;
 import java.util.regex.Pattern;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.port.in.JiraUseCase;
@@ -57,12 +58,16 @@ public class JiraTool {
     }
 
     /** Filters of {@code search_issues}; each is optional. */
-    public record JqlFilter(String status, String assignee, String type) {
+    public record JqlFilter(
+            @Nullable @ArgumentLimits(minLength = 1, maxLength = MAX_NAME) String status,
+            @Nullable @ArgumentLimits(minLength = 1, maxLength = MAX_USERNAME) String assignee,
+            @Nullable @ArgumentLimits(minLength = 1, maxLength = MAX_NAME) String type) {
     }
 
     @Tool(name = "get_issue", description = "Returns one Jira issue: key, project, type, status, assignee "
             + "username, last update time, and the summary and description as written by Jira users, each "
-            + "marked as untrusted data (description cut at 10000 characters).")
+            + "marked as untrusted data. The description is plain text converted from Jira wiki markup "
+            + "(images removed, links as text) and cut at 10000 characters.")
     @ToolRisk(RiskLevel.READ_ONLY)
     public IssueView getIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")

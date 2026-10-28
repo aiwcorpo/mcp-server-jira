@@ -1,9 +1,42 @@
 # STATUS - mcp-server-jira (ws-04)
 
-M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-6, 84 testy na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
+M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-10 (wcześniej alpha-6), 95 testów na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
 
-Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-6`
-(kontrakty 2.0.2). M2 (manifest C6, `@ResourceRef`, `QueryScope`, `ResultFilter`) nie jest zaczęty.
+Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-10`
+(kontrakty 2.1.1). M2 (manifest C6, `@ResourceRef`, `QueryScope`, `ResultFilter`) nie jest zaczęty.
+
+## Runda 3: starter alpha-10 (2026-10-28)
+
+Z alpha-6 na 3.0.0-alpha-10 (BOM, kontrakty 2.1.1). Testy: `./mvnw clean verify` 95, 0 błędów (JiraServiceTest 14,
+JqlBuilderTest 4, JiraWikiTextTest 8, mcp-app 69). Uruchomienie lokalne wg README (port 18500, `dev`): health 200,
+`POST /mcp` bez JWT 401, proces zatrzymany.
+
+- Limity na każdym poziomie: `JqlFilter` to rekord z `@ArgumentLimits` (`minLength 1`, `maxLength` 60/100/60) i
+  `@Nullable` na `status`, `assignee`, `type`; `McpToolsConfiguration` ma tylko `SchemaLimitedToolCallbacks.of(...)` i
+  kontrolę listy nazw narzędzi (usunięte `boundedFilter` i `withBoundedFilter`). Test za długiego `status` w
+  `SearchIssuesToolTest.filterValuesCannotCarryJql` (C10 `invalid_argument`; komunikat startera wymienia
+  `jql_filter`, nie pole).
+- Wyniki: `UntrustedText` ze startera zamiast własnego rekordu; `@Nullable` na `assignee`, `description` oraz
+  `project`, `type`, `status`, `updated` (adapter dopuszcza brak); `TransitionView.status` też. Bez adnotacji Jacksona.
+  Testy: `anUnassignedIssueIsAnOkResultWithNullAssignee` (zgłoszenie bez osoby i opisu: wynik ok, `null` w
+  `structuredContent`). Nazwy typu, statusu i przejścia: `TextHygiene.normalize` i `UntrustedText.cut` (60) zamiast
+  własnego `\p{Cntrl}|\p{Cf}`.
+- J2-L2: `JiraWikiText` zamienia opis z wiki markup na tekst. Kolejność: dekodowanie encji (`&#8203;`), `normalize`,
+  `cut`, filtr (obrazy, makra `{code}`/`{noformat}`/`{panel}`..., `{{mono}}`, linki: `[tekst|url]` -> `tekst (url)`,
+  `[url]` -> `url`, `[~user]` -> `user`; nagłówki, listy, tabele, cytaty, pogrubienia i podobne), `plainCut`.
+  Filtr powtarza się do braku zmian, bo usunięcie jednej konstrukcji może złożyć inną. Znak niewidoczny wewnątrz
+  `!url!` normalizacja zamienia na spację, więc taki tekst nie jest już składnią obrazu i wychodzi jako zwykły
+  tekst z wykrzyknikami. Sekwencje `\*` nie są interpretowane (zostają jak napisane). Streszczenie (`summary`) w Jirze
+  to pole jednowierszowe, nie markup: tylko higiena i cięcie. Komentarze nie są zwracane przez żadne narzędzie.
+- `application-dev.yml`: usunięte `replay-store: memory` i `mtls.required: false` (starter robi to sam; WARN
+  `dev_profile_overrides` ma `overridden=[]`). `SPRING_PROFILES_ACTIVE=dev` tylko w komendzie z README, nie w `.env`,
+  compose, jednostce ani obrazie.
+- Logi: błędy domenowe (`not_found_or_denied`, `invalid_argument`, `credential_required`) są INFO; ERROR zostają
+  tylko przypadki `internal_error` (3xx, nieczytelna odpowiedź). Testy serwera niczego nie oczekiwały na ERROR
+  dla błędu domenowego, więc nie było czego zmieniać. Brak linii `untrusted_text_not_normalized`.
+- Gateway M2 (claimy `vs` i `vsc:{}` przy wywołaniu przez link): `GetIssueToolTest.acceptsTheVirtualServerClaimsOfACallThroughALink`
+  (JWT z `vs` i pustym `vsc`, wynik ok) przechodzi bez zmian w kodzie serwera.
+- Zmiana `definitionHash` narzędzi (nowe `outputSchema`, opis `get_issue`): gateway oznaczy je jako `pending_approval`.
 
 ## Runda 2: alpha-6, template c1258c4, recenzja M1 (2026-10-27)
 
@@ -28,7 +61,7 @@ Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.
 | W-7 zasób przeniesiony przy UPDATE | patrz J-M5 | |
 | J2-M1 odmowa niejednoznacznego przejścia bez celu | poprawione: komunikat zawiera pary `id -> status docelowy` (nazwa statusu z Jiry przez `JiraToolViews.name`: do 60 znaków, bez znaków sterujących; id tylko liczbowe); wyjątek niesie kandydatów, nie same id | `JiraToolErrors`, `AmbiguousTransitionException.candidates()`; `TransitionIssueToolTest.aNameSharedByTwoTransitionsIsRefusedWithTheIdsToChooseFrom` (oczekuje `41 -> Done` i `42 -> Rejected`), `JiraServiceTest.aNameSharedByTwoTransitionsIsNotGuessed` |
 | J2-L1 wzmianki `[~user]` w `{noformat}` | otwarte, do sprawdzenia na instancji DC: komentarz `{noformat}[~user]{noformat}` i skrzynka powiadomień. Test w repo widzi tylko tekst wysłany do stuba. Niezależnie od wyniku tani środek to rozbicie `[~` w `CommentText` (np. na `[ ~`); nie wprowadzone, bo zmienia treść komentarza i wymaga decyzji, czy wzmianki mają kiedykolwiek działać | `CommentText`, `AddCommentToolTest.markupThatMakesRequestsOrNotificationsReachesJiraAsLiteralText` |
-| J2-L2 opis zgłoszenia jako surowy wiki markup z `format: text/plain` | otwarte, sprawa konwersji pod CC-072: definicja `UntrustedText` każe serwerowi konwertować bogatsze formaty do `text/plain`/`text/markdown`, a opis (`!url!`, `[tekst\|url]`, makra) idzie bez konwersji. Kontraktu nie zmieniamy. Opcje: konwersja po stronie serwera (usunięcie składni obrazów, linków i makr) albo udokumentowane odstępstwo albo osobna wartość `format` dla wiki markup (propozycja zmiany kontraktu, decyzja koordynatora). To samo dotyczy W-5 (starter) | `JiraToolViews.UntrustedText`, `GetIssueToolTest` |
+| J2-L2 opis zgłoszenia jako surowy wiki markup z `format: text/plain` | zamknięte w alpha-10: konwersja po stronie serwera (`JiraWikiText`), opisana niżej | `JiraWikiTextTest`, `GetIssueToolTest.theDescriptionIsPlainTextWithoutWikiMarkupImagesAndMacros` |
 
 Starter 3.0.0-alpha-6: usunięte ręcznie pisane schematy (`inputSchemas()`, `TOOLS` z kontrolą schematu) na rzecz
 `@ArgumentLimits` i `SchemaLimitedToolCallbacks.of(...)`; wzorce `JiraProjectKey` i `JiraIssueKey` przez

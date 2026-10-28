@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -61,10 +62,15 @@ abstract class ServerTestSupport {
 
     /** An MCP client that reaches the server the way the gateway does, with {@code credential} as C3 header. */
     McpSyncClient clientWithCredential(String credential) {
+        return clientWithToken(user -> user.username("jkowalski"), credential);
+    }
+
+    /** As {@link #clientWithCredential}, with the caller's token shaped by {@code user} (claims of a link call). */
+    McpSyncClient clientWithToken(Consumer<TestGateway.Token> user, String credential) {
         HttpClientStreamableHttpTransport transport = HttpClientStreamableHttpTransport.builder(baseUrl())
                 .endpoint(ENDPOINT)
                 .openConnectionOnStartup(false)
-                .httpRequestCustomizer(GATEWAY.asGateway(user -> user.username("jkowalski"), credential))
+                .httpRequestCustomizer(GATEWAY.asGateway(user, credential))
                 .build();
         McpSyncClient client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(20)).build();
         client.initialize();

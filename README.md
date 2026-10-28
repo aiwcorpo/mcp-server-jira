@@ -1,7 +1,7 @@
 # mcp-jira: serwer MCP platformy
 
-Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-alpha-6 (Java 25, Spring Boot
-4.1.0, Spring AI 2.0.0, kontrakty `mcp-contracts` 2.0.2). Stoi wyłącznie za gateway'em platformy: przyjmuje
+Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-alpha-10 (Java 25, Spring Boot
+4.1.0, Spring AI 2.0.0, kontrakty `mcp-contracts` 2.1.1). Stoi wyłącznie za gateway'em platformy: przyjmuje
 ruch tylko po mTLS z wewnętrznym JWT gateway'a (C2), a do systemu docelowego woła z poświadczeniem
 użytkownika, które gateway dołącza do każdego żądania (C3). Bez poprawnego JWT odpowiada 401, nie ma trybu
 anonimowego.
@@ -40,7 +40,7 @@ całość. Resolver zasobów (`@ResourceRef`, starter beta) dojdzie w `mcp-integ
 | Narzędzie (klient: `jira__<nazwa>`) | Ryzyko | Uprawnienie (C9) | Poświadczenie | Argumenty | Wynik |
 | --- | --- | --- | --- | --- | --- |
 | `search_issues` | `READ_ONLY` | `mcp-jira-read` | `user-secret` (PAT, `Bearer`); gateway przyjmuje też `user-oauth` | `project` (`JiraProjectKey`), opcjonalnie `jql_filter{status, assignee, type}` i `text` (do 200 znaków) | `{project, total, returned, issues[{key, type, status, assignee, updated, summary}]}`, najwyżej 25, najnowsze zmiany najpierw; `summary` to `UntrustedText` |
-| `get_issue` | `READ_ONLY` | `mcp-jira-read` | jak wyżej | `issueKey` (`JiraIssueKey`) | `{key, project, type, status, assignee, updated, summary, description}`; oba teksty to `UntrustedText`, opis do 10000 znaków |
+| `get_issue` | `READ_ONLY` | `mcp-jira-read` | jak wyżej | `issueKey` (`JiraIssueKey`) | `{key, project, type, status, assignee, updated, summary, description}`; oba teksty to `UntrustedText`; opis to wiki markup z Jiry zamieniony na czysty tekst (bez składni formatowania, obrazów i makr, linki jako tekst), do 10000 znaków; `assignee` i `description` bywają `null` |
 | `add_comment` | `UPDATE` | `mcp-jira-write` | jak wyżej | `issueKey`, `body` (1-10000 znaków, bez znaków sterujących poza `\n`, `\r`, `\t`) | `{issueKey, commentId, created}`; `issueKey` to klucz kanoniczny z Jiry |
 | `transition_issue` | `UPDATE` | `mcp-jira-write` | jak wyżej | `issueKey`, `transition` (id albo nazwa przejścia, do 60 znaków) | `{issueKey, transition, status}`; `issueKey` kanoniczny |
 

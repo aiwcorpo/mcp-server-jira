@@ -23,9 +23,9 @@ do modelu, który może go potraktować jak instrukcję. Wzorcem jest `get_issue
    (naruszenie to C10 `invalid_argument`, zdarzenie C8). W kodzie zostaje to, czego schemat nie wyraża: nazwy
    statusu i przejścia, nazwa użytkownika, tekst wyszukiwania.
 5. `mcp-app`: narzędzia rejestruje `McpToolsConfiguration` przez `SchemaLimitedToolCallbacks.of(...)` (jawna
-   lista nazw `TOOLS`; sam `@Tool` nie wystarczy). Zagnieżdżony obiekt `jql_filter` starter zostawia otwarty,
-   więc domyka go i ogranicza `McpToolsConfiguration.boundedFilter`; kolejny zagnieżdżony obiekt wymaga tego
-   samego.
+   lista nazw `TOOLS`; sam `@Tool` nie wystarczy). Zagnieżdżony obiekt `jql_filter` to rekord `JqlFilter`
+   z `@ArgumentLimits` i `@Nullable` na każdym komponencie; starter sam go domyka i egzekwuje (od alpha-7 start
+   zatrzymuje się, gdy jakikolwiek poziom nie ma limitu).
 6. Test w `mcp-app/src/test` przez `ServerTestSupport`, odpowiedź systemu w `StubBackend`. Narzędzie
    zapisujące ma testy: przeniesione zgłoszenie (`ABC-3`), 3xx i odpowiedź inna niż 204 jako błąd, tekst
    od modelu jako dane.
