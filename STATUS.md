@@ -303,3 +303,15 @@ serwer sprawdziłem na procesie hosta (port 18775, `dev`): paczka polityk pobran
 ## Runda 7: starter beta-3 (2026-10-28)
 
 Podbicie BOM beta-2 -> beta-3 (MIGRATION "Z beta-2 na beta-3"). Wszystkie narzędzia zwracają rekordy, więc `@ResultWithoutResources` nie jest potrzebne; brak ręcznych `ToolCallback`; `@ResourceRef` nie stoi na komponentach argumentów. Bez zmian w kodzie.
+
+## Runda 8: poprawki przeglądu M3 (2026-10-28)
+
+| Znalezisko | Status |
+| --- | --- |
+| J-1 `delete_issue` na przeniesionym zgłoszeniu | poprawione: gdy klucz z Jiry różni się od klucza z argumentu, `invalid_argument` z nowym kluczem ("call again with that key"), bez DELETE; polityka dopuściła już nowy klucz, a zgłoszenie przeniesione poza uprawnienia daje `not_found_or_denied` bez klucza. `add_comment` i `transition_issue` zostają przy zapisie pod kluczem kanonicznym (J-M5): to UPDATE, odwracalne. Testy: `aMovedIssueIsNotDeletedUnderAKeyTheHumanDidNotConfirm`, `theNewKeyOfAMovedIssueOutsideThePolicyIsNotDisclosed` |
+| J-2 systemd | poprawione: `MCP_POLICY_*`, `MCP_INTERNAL_URL`, `MCP_ACCEPTED_CREDENTIAL_TYPES` w szablonie env, `StateDirectory=mcp-jira` |
+| J-3 TOCTOU resolver -> zapis | ryzyko rezydualne: REST v2 nie pozwala zamknąć atomowo; Jira sprawdza jeszcze prawa użytkownika. Nie zmieniane |
+| J-4 liczba wywołań restricted vs nieistniejące | zaakceptowane: odpowiedź klienta identyczna, różnica tylko w czasie i logach Jiry |
+| J-5 `fetchAll` | bez zmian: mock Jiry z mcp-platform-dev odpowiada na `key in (...)` wspólną pustą odpowiedzią (mapowania szukają `project = X`), więc zbiorcze zapytanie wycięłoby wszystkie trafienia w dev. Zostaje pętla (jedno `GET issue` na trafienie, projekt raz na listę, najwyżej 25). Do zrobienia, gdy mock zacznie obsługiwać `key in` |
+| J-6 `assignee` | poprawione: `TextHygiene.normalize` i cięcie do 100 (`JiraToolViewsTest`) |
+| J-7 DELETE z 200 | odmowa zostaje (`internal_error`), dodane zdarzenie logu `event=delete_unconfirmed status=200`; `internal_error` po `delete_issue` nie znaczy "nie usunięto" |

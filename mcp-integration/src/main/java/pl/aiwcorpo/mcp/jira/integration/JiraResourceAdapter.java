@@ -192,6 +192,9 @@ public class JiraResourceAdapter implements JiraResourcePort {
                     .map(response -> {
                         // Jira answers a deletion with 204; any other 2xx is not a confirmation.
                         if (response.getStatusCode().value() != 204) {
+                            // The issue may be gone (a proxy that turns 204 into 200): the client gets an error, the
+                            // log says the operation is unconfirmed rather than failed.
+                            LOG.warn("event=delete_unconfirmed status={}", response.getStatusCode().value());
                             throw new BackendResponseException("delete answered " + response.getStatusCode().value());
                         }
                         return true;

@@ -83,7 +83,9 @@ Zasady wyników i zapytań:
 - `delete_issue`: `DESTRUCTIVE`, akcja Cedar `delete` na zgłoszeniu, uprawnienie `mcp-jira-destructive` (plus zakres
   projektu z paczki). Serwer nie pyta o potwierdzenie ani nie ma parametru "czy na pewno": kod TOTP weryfikuje gateway (C11).
   Jira potwierdza usunięcie kodem 204 (inna odpowiedź 2xx i 3xx to `internal_error`); 404 i 403 to
-  `not_found_or_denied` (ten sam tekst co odmowa polityki), 401 to `credential_required`.
+  `not_found_or_denied` (ten sam tekst co odmowa polityki), 401 to `credential_required`. Zgłoszenie przeniesione
+  (klucz z Jiry inny niż z argumentu) nie jest usuwane: `invalid_argument` z nowym kluczem, bo potwierdzenie dotyczyło
+  starego. `internal_error` po `delete_issue` (np. 200 zamiast 204 z proxy, log `delete_unconfirmed`) nie znaczy "nie usunięto".
 - `transition_issue`: liczbowe `transition` pasujące do id przejścia wygrywa; nazwa musi pasować w całości
   (bez rozróżniania wielkości liter) i do jednego przejścia. Jira nie wymusza unikalnych nazw przejść
   wychodzących z jednego statusu, więc kilka pasujących to `invalid_argument` z listą par id -> status docelowy do wyboru. Jira

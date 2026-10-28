@@ -108,13 +108,27 @@ class DeleteIssueToolTest extends ServerTestSupport {
     }
 
     @Test
-    void aMovedIssueIsDeletedUnderItsNewKey() {
+    void aMovedIssueIsNotDeletedUnderAKeyTheHumanDidNotConfirm() {
         try (McpSyncClient client = eraserClient(PAT)) {
-            McpSchema.CallToolResult result = call(client, "delete_issue", Map.of("issueKey", "ABC-3"));
+            McpSchema.CallToolResult moved = call(client, "delete_issue", Map.of("issueKey", "ABC-3"));
 
-            assertThat(json(result).at("/issueKey").asString()).isEqualTo("DEF-5");
+            assertInvalidArgument(moved, "The issue now has the key DEF-5; call again with that key.");
+            assertThat(BACKEND.deletes()).isEmpty();
+
+            McpSchema.CallToolResult again = call(client, "delete_issue", Map.of("issueKey", "DEF-5"));
+            assertThat(json(again).at("/issueKey").asString()).isEqualTo("DEF-5");
         }
         assertThat(BACKEND.deletes()).containsExactly("/rest/api/2/issue/DEF-5");
+    }
+
+    @Test
+    void theNewKeyOfAMovedIssueOutsideThePolicyIsNotDisclosed() {
+        try (McpSyncClient client = eraserClient(PAT)) {
+            McpSchema.CallToolResult missing = call(client, "delete_issue", Map.of("issueKey", "ABC-999"));
+            McpSchema.CallToolResult movedToHr = call(client, "delete_issue", Map.of("issueKey", "ABC-30"));
+
+            assertThat(text(movedToHr)).isEqualTo(text(missing)).doesNotContain("HR-2");
+        }
     }
 
     @Test

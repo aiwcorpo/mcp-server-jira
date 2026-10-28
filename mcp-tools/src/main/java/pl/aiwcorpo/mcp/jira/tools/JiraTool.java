@@ -47,6 +47,8 @@ public class JiraTool {
     static final Pattern NAME = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N} _./()&'-]{0,59}");
     /** Jira Data Center usernames. */
     static final Pattern USERNAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._@+-]{0,99}");
+    /** Shape of an issue key (the contract pattern), for repeating a key Jira reports. */
+    private static final Pattern NEW_KEY = Pattern.compile("[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}");
     static final Pattern TRANSITION_ID = Pattern.compile("[1-9][0-9]{0,9}");
     /**
      * Characters with a meaning in Jira's text search (Lucene syntax). They are replaced by spaces, which the
@@ -183,6 +185,14 @@ public class JiraTool {
                     contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
         String key = resolved(issueKey).key();
+        if (!key.equals(issueKey)) {
+            // The one-time code the human entered is bound to the key in the arguments; deleting another issue
+            // (a moved one under its new key) would not be what was confirmed. The policy has already allowed the
+            // new key, so naming it discloses nothing the caller could not read.
+            throw new InvalidToolArgumentException(NEW_KEY.matcher(key).matches()
+                    ? "The issue now has the key " + key + "; call again with that key."
+                    : "The issue now has another key; call again with its current key.");
+        }
         useCase.deleteIssue(key);
         return new DeleteView(key, true);
     }

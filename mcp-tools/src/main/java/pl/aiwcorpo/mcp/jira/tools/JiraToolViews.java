@@ -26,6 +26,7 @@ final class JiraToolViews {
     static final int MAX_DESCRIPTION = 10_000;
     static final int MAX_SUMMARY = 1_000;
     static final int MAX_NAME = 60;
+    static final int MAX_USERNAME = 100;
 
     private JiraToolViews() {
     }
@@ -35,7 +36,7 @@ final class JiraToolViews {
 
         static IssueView of(JiraIssue issue) {
             return new IssueView(issue.key(), issue.projectKey(), name(issue.type()), name(issue.status()),
-                    issue.assignee(), issue.updated(), summaryText(issue.summary()),
+                    username(issue.assignee()), issue.updated(), summaryText(issue.summary()),
                     JiraWikiText.plain(issue.description(), MAX_DESCRIPTION));
         }
     }
@@ -48,7 +49,7 @@ final class JiraToolViews {
 
         static SearchView of(String project, IssueSearchResult result) {
             List<IssueListItem> items = result.issues().stream()
-                    .map(i -> new IssueListItem(i.key(), name(i.type()), name(i.status()), i.assignee(), i.updated(),
+                    .map(i -> new IssueListItem(i.key(), name(i.type()), name(i.status()), username(i.assignee()), i.updated(),
                             summaryText(i.summary())))
                     .toList();
             return new SearchView(project, items);
@@ -76,6 +77,11 @@ final class JiraToolViews {
     /** The summary is a single-line text field in Jira, not wiki markup: no markup filter, only hygiene and the cut. */
     static UntrustedText summaryText(String summary) {
         return UntrustedText.plain(summary == null ? "" : summary, MAX_SUMMARY);
+    }
+
+    /** User names come from the company directory, not from Jira alone; same hygiene as the names, longer limit. */
+    static String username(String username) {
+        return username == null ? null : UntrustedText.cut(TextHygiene.normalize(username), MAX_USERNAME);
     }
 
     static String name(String name) {
