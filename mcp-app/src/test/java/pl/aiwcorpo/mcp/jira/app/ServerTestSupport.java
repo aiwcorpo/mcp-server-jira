@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -60,9 +61,36 @@ abstract class ServerTestSupport {
         return "http://127.0.0.1:" + port;
     }
 
-    /** An MCP client that reaches the server the way the gateway does, with {@code credential} as C3 header. */
+    static final String READ_GROUP = "mcp-jira-read";
+    static final String WRITE_GROUP = "mcp-jira-write";
+    static final String DESTRUCTIVE_GROUP = "mcp-jira-destructive";
+    /** Maps to the scope {@code Jira::Project/<key>} in the static entities of the example bundle (ABC and DEF only). */
+    static final String PROJECT_ABC_GROUP = "mcp-jira-proj-ABC";
+    static final String PROJECT_DEF_GROUP = "mcp-jira-proj-DEF";
+
+    /**
+     * An MCP client of the usual caller, who may read and write in ABC and DEF, reaching the server the way the
+     * gateway does, with {@code credential} as C3 header.
+     */
     McpSyncClient clientWithCredential(String credential) {
-        return clientWithToken(user -> user.username("jkowalski"), credential);
+        return clientWithToken(ServerTestSupport::editor, credential);
+    }
+
+    /** Reads everything the bundle lets a reader read; nothing is granted for changes. */
+    static void reader(TestGateway.Token user) {
+        user.username("jkowalski").groups(List.of(READ_GROUP));
+    }
+
+    /** Reads, and changes issues of ABC and DEF. */
+    static void editor(TestGateway.Token user) {
+        user.username("jkowalski").groups(List.of(READ_GROUP, WRITE_GROUP, PROJECT_ABC_GROUP, PROJECT_DEF_GROUP));
+    }
+
+    /** As {@link #editor}, plus the destructive group and a fresh second factor, which the example bundle requires. */
+    static void eraser(TestGateway.Token user) {
+        user.username("jkowalski")
+                .groups(List.of(READ_GROUP, WRITE_GROUP, DESTRUCTIVE_GROUP, PROJECT_ABC_GROUP, PROJECT_DEF_GROUP))
+                .mfaAgeSeconds(60);
     }
 
     /** As {@link #clientWithCredential}, with the caller's token shaped by {@code user} (claims of a link call). */

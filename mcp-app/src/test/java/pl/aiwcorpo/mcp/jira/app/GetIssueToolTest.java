@@ -87,7 +87,7 @@ class GetIssueToolTest extends ServerTestSupport {
     @Test
     void acceptsTheVirtualServerClaimsOfACallThroughALink() {
         try (McpSyncClient client = clientWithToken(
-                user -> user.username("jkowalski").virtualServer("team-delivery", Map.of()), PAT)) {
+                user -> { reader(user); user.virtualServer("team-delivery", Map.of()); }, PAT)) {
             McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-1"));
 
             assertThat(result.isError()).isFalse();

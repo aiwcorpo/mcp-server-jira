@@ -14,6 +14,7 @@ import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.TransitionView;
 import pl.aiwcorpo.mcp.platform.error.InvalidToolArgumentException;
 import pl.aiwcorpo.mcp.platform.guard.RiskLevel;
 import pl.aiwcorpo.mcp.platform.guard.ToolRisk;
+import pl.aiwcorpo.mcp.platform.guard.ToolTitle;
 import pl.aiwcorpo.mcp.platform.input.ArgumentLimits;
 
 /**
@@ -69,6 +70,7 @@ public class JiraTool {
             + "marked as untrusted data. The description is plain text converted from Jira wiki markup "
             + "(images removed, links as text) and cut at 10000 characters.")
     @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("Pobierz zgłoszenie")
     public IssueView getIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = ISSUE_KEY_MAX_LENGTH, contractPattern = "JiraIssueKey")
@@ -81,6 +83,7 @@ public class JiraTool {
             + "most 25 issues, most recently updated first: key, type, status, assignee username, last update "
             + "time and the summary as written by Jira users, marked as untrusted data.")
     @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("Szukaj zgłoszeń")
     public SearchView searchIssues(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = PROJECT_KEY_MAX_LENGTH, contractPattern = "JiraProjectKey")
@@ -104,6 +107,7 @@ public class JiraTool {
             + "key Jira knows the issue under (differs from the given one when the issue was moved), the id of "
             + "the new comment and its creation time.")
     @ToolRisk(RiskLevel.UPDATE)
+    @ToolTitle("Dodaj komentarz")
     public CommentView addComment(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = ISSUE_KEY_MAX_LENGTH, contractPattern = "JiraIssueKey")
@@ -123,6 +127,7 @@ public class JiraTool {
             + "transitions is refused with the ids to choose from. Returns the key Jira knows the issue under, "
             + "the transition name and the status the issue moved to.")
     @ToolRisk(RiskLevel.UPDATE)
+    @ToolTitle("Zmień status zgłoszenia")
     public TransitionView transitionIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = ISSUE_KEY_MAX_LENGTH, contractPattern = "JiraIssueKey")
