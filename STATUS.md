@@ -2,7 +2,7 @@
 
 M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-10 (wcześniej alpha-6), 103 testy na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
 
-Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-10`
+Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-11`
 (kontrakty 2.1.1). M2 (manifest C6, `@ResourceRef`, `QueryScope`, `ResultFilter`) nie jest zaczęty.
 
 ## Runda 3: starter alpha-10 (2026-10-28)
@@ -227,3 +227,7 @@ Brak w M1.
 | J3-L2 luki filtra | poprawione: obraz z adresem (`://`) usuwany także po literze (`see!https://...!`); drugie `cut` po filtrze (tabele rosną); test kolejności (`cut` przed filtrem). Do wiadomości, nie zmieniane: `&lt;img ...&gt;` po dekodowaniu zostaje tekstem `<img ...>`, a zawartość `{html}...{html}` zostaje jako tekst (jak C-L4 w Confluence: `text/plain` jest deklaracją, ryzyko po stronie klienta renderującego HTML); obraz Markdown `![a](u)` rozbija reguła linków; obraz bez adresu (`see!a.png!`) zostaje, bo `Wow!great!` jest zwykłym tekstem | `anImageGluedToAWordIsStillRemovedWhenItHasAnAddress`, `theResultIsCutAgainAfterTheFilterBecauseTableRowsGrow`, `theCutRemovesAClosingDelimiterBeforeTheFilterRuns` |
 | J3-L3 nazwy statusów w komunikacie C10 | poprawione: nazwa w apostrofach bez `'`, `"`, `,` i `->`, brak celu jako `?` | `JiraToolErrorsTest` |
 | A10-M1 `DevProfileLoopbackTest` | bez zmian, rozwiąże starter alpha-11 | |
+
+## Runda 5: starter alpha-11 (2026-10-28)
+
+BOM alpha-10 -> alpha-11 (MIGRATION-3.0.md, sekcja "Zmiany w 3.0.0-alpha-11"). `DevProfileLoopbackTest` sprawdza regułę guarda przez `DevProfileGuardAssertions.assertDevProfileLoopbackRule()` (A10-M1), więc przechodzi także w kontenerze CI. `./mvnw clean verify`: 103 testów, 0 błędów; `INVOCATION_ID=ci ./mvnw -B verify`: bez różnic. Start lokalny w profilu `dev`: health 200, POST /mcp bez JWT 401.

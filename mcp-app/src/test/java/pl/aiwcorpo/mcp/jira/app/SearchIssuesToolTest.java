@@ -112,7 +112,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC",
                     "jql_filter", Map.of("reporter", "alice"))), "unknown arguments are not allowed");
             assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC",
-                    "jql_filter", Map.of("status", "x".repeat(61)))), "jql_filter is longer than");
+                    "jql_filter", Map.of("status", "x".repeat(61)))), "jql_filter.status is longer than 60 characters");
             assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "text", "x".repeat(201))),
                     "text is longer than 200 characters");
         }
