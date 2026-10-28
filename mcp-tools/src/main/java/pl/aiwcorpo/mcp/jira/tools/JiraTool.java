@@ -1,13 +1,17 @@
 package pl.aiwcorpo.mcp.jira.tools;
 
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
 import pl.aiwcorpo.mcp.jira.core.port.in.JiraUseCase;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.CommentView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.DeleteView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.IssueView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.SearchView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.TransitionView;
@@ -16,6 +20,12 @@ import pl.aiwcorpo.mcp.platform.guard.RiskLevel;
 import pl.aiwcorpo.mcp.platform.guard.ToolRisk;
 import pl.aiwcorpo.mcp.platform.guard.ToolTitle;
 import pl.aiwcorpo.mcp.platform.input.ArgumentLimits;
+import pl.aiwcorpo.mcp.platform.resource.QueryScope;
+import pl.aiwcorpo.mcp.platform.resource.ResourceContext;
+import pl.aiwcorpo.mcp.platform.resource.ResourcePolicy;
+import pl.aiwcorpo.mcp.platform.resource.ResourceRef;
+import pl.aiwcorpo.mcp.platform.resource.StructuredQuery.Direction;
+import pl.aiwcorpo.mcp.platform.resource.StructuredQuery.Operator;
 
 /**
  * The MCP tools of this server. Each public {@code @Tool} method is a capability an AI client can call
@@ -26,7 +36,9 @@ import pl.aiwcorpo.mcp.platform.input.ArgumentLimits;
  * method runs ({@link ArgumentLimits}, published by {@code SchemaLimitedToolCallbacks}): closed objects,
  * lengths and the key patterns of mcp-contracts. What stays here: a risk flag on every tool, the checks the
  * schema does not express (names, usernames, search text) and the resource always named by an explicit
- * argument.
+ * argument, marked {@link ResourceRef}: the starter resolves it with the caller's credential and evaluates the
+ * policy (C7) before a method runs, so an issue that is missing, invisible or in a restricted project never gets
+ * here and the client sees the same {@code not_found_or_denied} for all three.
  */
 @Service
 public class JiraTool {
@@ -44,18 +56,20 @@ public class JiraTool {
     /** Boolean operators of the same syntax (upper case only); left in, a lone one makes Jira answer 400. */
     static final Pattern TEXT_SEARCH_OPERATOR = Pattern.compile("\\b(?:AND|OR|NOT)\\b");
 
-    /** Longest {@code JiraProjectKey} / {@code JiraIssueKey} of the contracts (the definitions give no length). */
-    static final int PROJECT_KEY_MAX_LENGTH = 10;
-    static final int ISSUE_KEY_MAX_LENGTH = 21;
+    /** The fields a search may filter and sort by: the whitelist handed to the query builder of the starter. */
+    static final Set<String> SEARCH_FIELDS = Set.of("project", "status", "assignee", "issuetype", "text", "updated");
+
     public static final int MAX_NAME = 60;
     public static final int MAX_USERNAME = 100;
     static final int MAX_TEXT = 200;
     static final int MAX_BODY = 10_000;
 
     private final JiraUseCase useCase;
+    private final ResourcePolicy policy;
 
-    public JiraTool(JiraUseCase useCase) {
+    public JiraTool(JiraUseCase useCase, ResourcePolicy policy) {
         this.useCase = useCase;
+        this.policy = policy;
     }
 
     /** Filters of {@code search_issues}; each is optional. */
@@ -73,33 +87,43 @@ public class JiraTool {
     @ToolTitle("Pobierz zgłoszenie")
     public IssueView getIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
-            @ArgumentLimits(minLength = 4, maxLength = ISSUE_KEY_MAX_LENGTH, contractPattern = "JiraIssueKey")
-            String issueKey) {
-        return IssueView.of(useCase.getIssue(issueKey));
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
+        return IssueView.of(resolved(issueKey));
     }
 
     @Tool(name = "search_issues", description = "Searches issues of one Jira project, optionally filtered by "
-            + "status, assignee, issue type and words in the text. Returns the total number of matches and at "
-            + "most 25 issues, most recently updated first: key, type, status, assignee username, last update "
-            + "time and the summary as written by Jira users, marked as untrusted data.")
+            + "status, assignee, issue type and words in the text. Returns at most 25 issues, most recently "
+            + "updated first: key, type, status, assignee username, last update time and the summary as written "
+            + "by Jira users, marked as untrusted data. Issues the caller may not see are left out, so the list "
+            + "carries no total.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Szukaj zgłoszeń")
     public SearchView searchIssues(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
-            @ArgumentLimits(minLength = 2, maxLength = PROJECT_KEY_MAX_LENGTH, contractPattern = "JiraProjectKey")
-            String project,
+            @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
+                    contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
+            @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
             @ToolParam(description = "Optional filters, all must match", required = false)
             JqlFilter jql_filter,
             @ToolParam(description = "Words searched in summary, description and comments", required = false)
             @ArgumentLimits(minLength = 1, maxLength = MAX_TEXT)
             String text) {
         JqlFilter filter = jql_filter == null ? new JqlFilter(null, null, null) : jql_filter;
-        IssueSearch search = new IssueSearch(project,
-                optional(filter.status(), NAME, "jql_filter.status must be a status name of 1-60 characters"),
-                optional(filter.assignee(), USERNAME, "jql_filter.assignee must be a username of 1-100 characters"),
-                optional(filter.type(), NAME, "jql_filter.type must be an issue type name of 1-60 characters"),
-                searchText(text));
-        return SearchView.of(project, useCase.searchIssues(search));
+        QueryScope scope = policy.queryScope(JiraResourceModel.PROJECT_TYPE);
+        String jql = scope.jql(SEARCH_FIELDS)
+                .where("project", Operator.EQUALS, project)
+                .where("status", Operator.EQUALS,
+                        optional(filter.status(), NAME, "jql_filter.status must be a status name of 1-60 characters"))
+                .where("assignee", Operator.EQUALS,
+                        optional(filter.assignee(), USERNAME, "jql_filter.assignee must be a username of 1-100 characters"))
+                .where("issuetype", Operator.EQUALS,
+                        optional(filter.type(), NAME, "jql_filter.type must be an issue type name of 1-60 characters"))
+                .where("text", Operator.CONTAINS, searchText(text))
+                .orderBy("updated", Direction.DESC)
+                .build();
+        return SearchView.of(project, useCase.searchIssues(new IssueSearch(project, jql)));
     }
 
     @Tool(name = "add_comment", description = "Adds a comment to one Jira issue as the calling user. The text is "
@@ -110,8 +134,9 @@ public class JiraTool {
     @ToolTitle("Dodaj komentarz")
     public CommentView addComment(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
-            @ArgumentLimits(minLength = 4, maxLength = ISSUE_KEY_MAX_LENGTH, contractPattern = "JiraIssueKey")
-            String issueKey,
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Comment text, plain text")
             @ArgumentLimits(minLength = 1, maxLength = MAX_BODY)
             String body) {
@@ -119,7 +144,7 @@ public class JiraTool {
             throw new InvalidToolArgumentException(
                     "body must be 1-10000 characters of text; line breaks and tabs are the only control characters allowed");
         }
-        return CommentView.of(useCase.addComment(issueKey, body));
+        return CommentView.of(useCase.addComment(resolved(issueKey).key(), body));
     }
 
     @Tool(name = "transition_issue", description = "Moves one Jira issue through a workflow transition "
@@ -130,15 +155,45 @@ public class JiraTool {
     @ToolTitle("Zmień status zgłoszenia")
     public TransitionView transitionIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
-            @ArgumentLimits(minLength = 4, maxLength = ISSUE_KEY_MAX_LENGTH, contractPattern = "JiraIssueKey")
-            String issueKey,
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Transition id, or transition name available in the issue's current status")
             @ArgumentLimits(minLength = 1, maxLength = MAX_NAME)
             String transition) {
         if (!(TRANSITION_ID.matcher(transition).matches() || NAME.matcher(transition).matches())) {
             throw new InvalidToolArgumentException("transition must be a transition id or a name of 1-60 characters");
         }
-        return TransitionView.of(useCase.transitionIssue(issueKey, transition));
+        return TransitionView.of(useCase.transitionIssue(resolved(issueKey).key(), transition));
+    }
+
+    /**
+     * Deletion cannot be undone, so the risk is DESTRUCTIVE: the gateway asks for the one-time code and the policy
+     * checks the {@code delete} action on the issue. Nothing here asks "are you sure"; the confirmation is not the
+     * server's. Jira refuses an issue that has subtasks, and the tool does not delete them.
+     */
+    @Tool(name = "delete_issue", description = "Permanently deletes one Jira issue. An issue with subtasks is "
+            + "refused. Returns the key Jira knew the issue under (differs from the given one when the issue "
+            + "was moved).")
+    @ToolRisk(RiskLevel.DESTRUCTIVE)
+    @ToolTitle("Usuń zgłoszenie")
+    public DeleteView deleteIssue(
+            @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
+        String key = resolved(issueKey).key();
+        useCase.deleteIssue(key);
+        return new DeleteView(key, true);
+    }
+
+    /**
+     * The issue the resolver fetched for the policy: the one judged is the one returned, no second call to Jira, and
+     * the key is the one Jira reports (the write goes to it, not to the requested key of a moved issue).
+     */
+    private static JiraIssue resolved(String issueKey) {
+        return ResourceContext.current().orElseThrow()
+                .fetched(JiraResourceModel.ISSUE_TYPE, issueKey, JiraIssue.class).orElseThrow();
     }
 
     private static String optional(String value, Pattern pattern, String message) {

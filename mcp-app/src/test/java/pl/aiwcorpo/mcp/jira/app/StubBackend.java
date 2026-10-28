@@ -19,11 +19,15 @@ import java.util.regex.Pattern;
  * client, timeouts and error mapping. Paths and payloads follow Jira (and the WireMock Jira of
  * mcp-platform-dev, {@code mocks/jira}):
  * <ul>
- *   <li>projects: {@code ABC} without category, {@code HR} in category "Restricted", {@code SEC} 403, others 404;</li>
+ *   <li>projects: {@code ABC} and {@code DEF} without category, {@code HR} in category "Restricted", {@code SEC} 403,
+ *       others 404;</li>
  *   <li>issues: {@code ABC-1} visible, with fields the server must not pass on; {@code ABC-3} moved, answers
  *       as {@code DEF-5}; {@code ABC-403} 403; {@code ABC-500} fails and echoes the Authorization header in
  *       the body; others 404;</li>
- *   <li>{@code ABC-18}: the description in wiki markup;</li>
+ *   <li>{@code ABC-18}: the description in wiki markup; {@code HR-1} is an issue of the restricted project, {@code ABC-30}
+ *       and {@code ABC-31} answer as {@code HR-2} (moved there);</li>
+ *   <li>DELETE: {@code ABC-1}, {@code ABC-2}, {@code DEF-5} answer 204; {@code ABC-21} 401, {@code ABC-22} 400 (has
+ *       subtasks), {@code ABC-24} 403, {@code ABC-25} 200 instead of 204, {@code ABC-26} redirects; any other key 404;</li>
  *   <li>search ({@code POST /rest/api/2/search}): ABC-1, ABC-2 and DEF-1 (a foreign issue the server must
  *       drop); a JQL with status "Nope" is 400, like a status Jira does not know;</li>
  *   <li>comments and transitions on {@code ABC-1} and {@code DEF-5}; transition 31 ("Done") is 400 (needs a
@@ -89,6 +93,23 @@ final class StubBackend {
         return List.copyOf(requests);
     }
 
+    /** Requests that change something in Jira: everything but GET (searches are POST but only read). */
+    List<Request> writes() {
+        return requests.stream()
+                .filter(r -> !"GET".equals(r.method()) && !"/rest/api/2/search".equals(r.path()))
+                .toList();
+    }
+
+    /** Paths of the DELETE requests received so far. */
+    List<String> deletes() {
+        return requests.stream().filter(r -> "DELETE".equals(r.method())).map(Request::path).toList();
+    }
+
+    /** Request bodies of the searches received so far. */
+    List<String> searches() {
+        return requests.stream().filter(r -> "/rest/api/2/search".equals(r.path())).map(Request::body).toList();
+    }
+
     /** Authorization headers received so far, in order. */
     List<String> authorizations() {
         return requests.stream().map(Request::authorization).toList();
@@ -135,6 +156,9 @@ final class StubBackend {
             case "ABC" -> respond(exchange, 200, """
                     {"self":"http://jira.internal:8080/rest/api/2/project/10000","id":"10000","key":"ABC",
                      "name":"Alpha Team","projectTypeKey":"software"}""");
+            case "DEF" -> respond(exchange, 200, """
+                    {"self":"http://jira.internal:8080/rest/api/2/project/10001","id":"10001","key":"DEF",
+                     "name":"Delta Team","projectTypeKey":"software"}""");
             case "HR" -> respond(exchange, 200, """
                     {"self":"http://jira.internal:8080/rest/api/2/project/10002","id":"10002","key":"HR",
                      "name":"Human Resources","projectTypeKey":"software",
@@ -151,6 +175,7 @@ final class StubBackend {
                     {"errorMessages":["The value 'Nope' does not exist for the field 'status'."],"errors":{}}""");
             return;
         }
+        String stale = body.contains("stale index") ? STALE_HITS : "";
         respond(exchange, 200, """
                 {"expand":"names,schema","startAt":0,"maxResults":25,"total":3,"issues":[
                  %s,
@@ -158,14 +183,16 @@ final class StubBackend {
                   "issuetype":{"name":"Bug"},"status":{"name":"In Progress"},"assignee":{"name":"alice",
                   "displayName":"Alice Tester","emailAddress":"alice@corp.test"},"updated":"2026-10-21T08:00:00.000+0000"}},
                  {"id":"10200","key":"DEF-1","fields":{"summary":"Shared CI runner","project":{"key":"DEF"},
-                  "issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,"updated":"2026-10-19T08:00:00.000+0000"}}
-                ]}""".formatted(ISSUE_ABC_1));
+                  "issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,"updated":"2026-10-19T08:00:00.000+0000"}}%s
+                ]}""".formatted(ISSUE_ABC_1, stale));
     }
 
     private void issue(HttpExchange exchange, String method, String key, String sub, String authorization,
             String body) throws IOException {
         boolean write = "POST".equals(method);
-        if ("ABC-403".equals(key)) {
+        if ("DELETE".equals(method)) {
+            deleteIssue(exchange, key, sub);
+        } else if ("ABC-403".equals(key)) {
             respond(exchange, 403, "{\"errorMessages\":[\"You do not have the permission to see the specified issue.\"]}");
         } else if ("ABC-500".equals(key)) {
             respond(exchange, 500, "{\"error\":\"boom\",\"seen\":\"" + authorization + "\"}");
@@ -176,6 +203,8 @@ final class StubBackend {
                     .replace(ISSUE_ABC_1_DESCRIPTION, WIKI_DESCRIPTION));
         } else if (sub == null && !write && "ABC-3".equals(key)) {
             respond(exchange, 200, MOVED_ISSUE);
+        } else if (sub == null && !write && ("HR-1".equals(key) || "ABC-30".equals(key) || "ABC-31".equals(key))) {
+            respond(exchange, 200, RESTRICTED_ISSUE.replace("HR-1", "HR-1".equals(key) ? key : "HR-2"));
         } else if (sub == null && !write && "DEF-5".equals(key)) {
             respond(exchange, 200, MOVED_ISSUE);
         } else if (sub == null && !write && PLAIN_ISSUES.contains(key)) {
@@ -234,6 +263,27 @@ final class StubBackend {
         }
     }
 
+    /** Deletions: the issue answers 204, or fails the way the key says (the GET of these keys is a plain issue). */
+    private void deleteIssue(HttpExchange exchange, String key, String sub) throws IOException {
+        if (sub != null) {
+            respond(exchange, 404, "{\"errorMessages\":[\"null for uri\"],\"errors\":{}}");
+            return;
+        }
+        switch (key) {
+            case "ABC-1", "ABC-2", "DEF-5" -> {
+                exchange.sendResponseHeaders(204, -1);
+                exchange.close();
+            }
+            case "ABC-21" -> respond(exchange, 401, "{\"errorMessages\":[\"Authentication required\"],\"errors\":{}}");
+            case "ABC-22" -> respond(exchange, 400, """
+                    {"errorMessages":["The issue 'ABC-22' has subtasks. Subtask list: ABC-23."],"errors":{}}""");
+            case "ABC-24" -> respond(exchange, 403, "{\"errorMessages\":[\"You do not have permission to delete issues.\"]}");
+            case "ABC-25" -> respond(exchange, 200, "{}");
+            case "ABC-26" -> redirect(exchange);
+            default -> respond(exchange, 404, "{\"errorMessages\":[\"Issue Does Not Exist\"],\"errors\":{}}");
+        }
+    }
+
     private void redirect(HttpExchange exchange) throws IOException {
         exchange.getResponseHeaders().set("Location",
                 "http://127.0.0.1:" + elsewhere.getAddress().getPort() + "/login");
@@ -250,7 +300,22 @@ final class StubBackend {
     }
 
     /** Issues that read like ABC-1 under their own key; what differs is how the writes to them answer. */
-    private static final java.util.Set<String> PLAIN_ISSUES = java.util.Set.of("ABC-7", "ABC-8", "ABC-9", "ABC-15", "ABC-17");
+    private static final java.util.Set<String> PLAIN_ISSUES = java.util.Set.of("ABC-2", "ABC-7", "ABC-8", "ABC-9", "ABC-15", "ABC-17",
+            "ABC-20", "ABC-21", "ABC-22", "ABC-24", "ABC-25", "ABC-26");
+
+    /** Extra hits of a search for "stale index": issues the index still lists under ABC, one moved to HR, one failing. */
+    private static final String STALE_HITS = """
+            ,
+                 {"id":"10230","key":"ABC-30","fields":{"summary":"Payroll export","project":{"key":"ABC"},
+                  "issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,"updated":"2026-10-18T08:00:00.000+0000"}},
+                 {"id":"10231","key":"ABC-500","fields":{"summary":"Unreadable","project":{"key":"ABC"},
+                  "issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,"updated":"2026-10-17T08:00:00.000+0000"}}""";
+
+    /** An issue of the project HR (category "Restricted"): the key HR-1, or HR-2 after a move from ABC. */
+    private static final String RESTRICTED_ISSUE = """
+            {"id":"10300","key":"HR-1","fields":{"summary":"Salary review 2026",
+             "project":{"key":"HR","id":"10002","name":"Human Resources"},"issuetype":{"name":"Task"},
+             "status":{"name":"To Do"},"assignee":null,"updated":"2026-10-22T08:00:00.000+0000","description":null}}""";
 
     /** ABC-3 after a move to project DEF: Jira answers the old key with the issue under its new key. */
     private static final String MOVED_ISSUE = """

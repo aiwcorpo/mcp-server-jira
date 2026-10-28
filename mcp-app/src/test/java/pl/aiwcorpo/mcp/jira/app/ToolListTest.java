@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/** The public surface: exactly the four tools the gateway has in its configuration, each with a closed schema. */
+/** The public surface: exactly the five tools the gateway has in its configuration, each with a closed schema. */
 class ToolListTest extends ServerTestSupport {
 
     @Test
@@ -17,10 +17,11 @@ class ToolListTest extends ServerTestSupport {
             List<McpSchema.Tool> tools = client.listTools().tools();
 
             assertThat(tools).extracting(McpSchema.Tool::name)
-                    .containsExactlyInAnyOrder("search_issues", "get_issue", "add_comment", "transition_issue");
+                    .containsExactlyInAnyOrder("search_issues", "get_issue", "add_comment", "transition_issue", "delete_issue");
             assertThat(tools).filteredOn(t -> t.annotations().readOnlyHint()).extracting(McpSchema.Tool::name)
                     .containsExactlyInAnyOrder("search_issues", "get_issue");
-            assertThat(tools).noneMatch(t -> Boolean.TRUE.equals(t.annotations().destructiveHint()));
+            assertThat(tools).filteredOn(t -> Boolean.TRUE.equals(t.annotations().destructiveHint()))
+                    .extracting(McpSchema.Tool::name).containsExactly("delete_issue");
         }
     }
 

@@ -27,18 +27,18 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(result.isError()).isFalse();
             JsonNode found = json(result);
             assertThat(found.at("/project").asString()).isEqualTo("ABC");
-            assertThat(found.at("/returned").asInt()).isEqualTo(2);
             assertThat(found.at("/issues/0/key").asString()).isEqualTo("ABC-1");
             assertThat(found.at("/issues/0/summary/text").asString()).isEqualTo("Login page returns 500");
             assertThat(found.at("/issues/0/summary/kind").asString()).isEqualTo("untrusted-data");
-            assertThat(found.at("/total").asInt()).as("the dropped hit is not counted").isEqualTo(2);
+            assertThat(found.has("total")).as("Jira's total counts what the filters remove").isFalse();
+            assertThat(found.at("/issues")).hasSize(2);
             assertThat(found.at("/issues/1/assignee").asString()).isEqualTo("alice");
             assertThat(text(result)).as("an issue of another project is dropped").doesNotContain("DEF-1")
                     .doesNotContain("alice@corp.test", "Alice Tester");
         }
-        assertThat(BACKEND.requests()).extracting(StubBackend.Request::path)
-                .containsExactly("/rest/api/2/project/ABC", "/rest/api/2/search");
-        JsonNode search = JSON.readTree(BACKEND.requests().get(1).body());
+        assertThat(BACKEND.requests()).extracting(StubBackend.Request::path).first().isEqualTo("/rest/api/2/project/ABC");
+        assertThat(BACKEND.searches()).hasSize(1);
+        JsonNode search = JSON.readTree(BACKEND.searches().get(0));
         assertThat(search.at("/jql").asString()).isEqualTo("project = \"ABC\" AND status = \"In Progress\""
                 + " AND assignee = \"alice\" AND issuetype = \"Bug\" AND text ~ \"login page\" ORDER BY updated DESC");
         assertThat(search.at("/maxResults").asInt()).isEqualTo(25);
@@ -50,7 +50,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             assertThat(call(client, "search_issues", Map.of("project", "ABC")).isError()).isFalse();
         }
-        assertThat(JSON.readTree(BACKEND.requests().get(1).body()).at("/jql").asString())
+        assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
                 .isEqualTo("project = \"ABC\" ORDER BY updated DESC");
     }
 
@@ -116,7 +116,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "text", "x".repeat(201))),
                     "text is longer than 200 characters");
         }
-        assertThat(BACKEND.requests()).isEmpty();
+        assertThat(BACKEND.searches()).as("a value that fails the checks of the tool never becomes a query").isEmpty();
     }
 
     @Test
@@ -136,7 +136,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(call(client, "search_issues", Map.of("project", "ABC", "text", "login AND page OR NOT")).isError())
                     .isFalse();
         }
-        assertThat(JSON.readTree(BACKEND.requests().get(1).body()).at("/jql").asString())
+        assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
                 .contains("text ~ \"login page\"");
     }
 }

@@ -18,7 +18,7 @@ import pl.aiwcorpo.mcp.platform.input.SchemaLimitedToolCallbacks;
 @Configuration
 public class McpToolsConfiguration {
 
-    static final Set<String> TOOLS = Set.of("search_issues", "get_issue", "add_comment", "transition_issue");
+    static final Set<String> TOOLS = Set.of("search_issues", "get_issue", "add_comment", "transition_issue", "delete_issue");
 
     @Bean
     ToolCallbackProvider mcpTools(JiraTool jiraTool) {

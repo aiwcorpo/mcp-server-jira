@@ -6,7 +6,9 @@ import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
+import pl.aiwcorpo.mcp.platform.resource.ResourceRef;
 import pl.aiwcorpo.mcp.platform.text.TextHygiene;
 import pl.aiwcorpo.mcp.platform.text.UntrustedText;
 
@@ -38,18 +40,18 @@ final class JiraToolViews {
         }
     }
 
-    record IssueListItem(String key, @Nullable String type, @Nullable String status, @Nullable String assignee,
+    record IssueListItem(@ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String key, @Nullable String type, @Nullable String status, @Nullable String assignee,
             @Nullable String updated, UntrustedText summary) {
     }
 
-    record SearchView(String project, int total, int returned, List<IssueListItem> issues) {
+    record SearchView(String project, List<IssueListItem> issues) {
 
         static SearchView of(String project, IssueSearchResult result) {
             List<IssueListItem> items = result.issues().stream()
                     .map(i -> new IssueListItem(i.key(), name(i.type()), name(i.status()), i.assignee(), i.updated(),
                             summaryText(i.summary())))
                     .toList();
-            return new SearchView(project, result.total(), items.size(), items);
+            return new SearchView(project, items);
         }
     }
 
@@ -58,6 +60,9 @@ final class JiraToolViews {
         static CommentView of(JiraComment comment) {
             return new CommentView(comment.issueKey(), comment.id(), comment.created());
         }
+    }
+
+    record DeleteView(String issueKey, boolean deleted) {
     }
 
     record TransitionView(String issueKey, String transition, @Nullable String status) {

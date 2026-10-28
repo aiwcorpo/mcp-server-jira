@@ -28,9 +28,10 @@ class TransitionIssueToolTest extends ServerTestSupport {
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::method, StubBackend.Request::path)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/issue/ABC-1"),
+                        org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/project/ABC"),
                         org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/issue/ABC-1/transitions"),
                         org.assertj.core.groups.Tuple.tuple("POST", "/rest/api/2/issue/ABC-1/transitions"));
-        assertThat(JSON.readTree(BACKEND.requests().get(2).body()).at("/transition/id").asString()).isEqualTo("21");
+        assertThat(JSON.readTree(BACKEND.writes().getFirst().body()).at("/transition/id").asString()).isEqualTo("21");
         assertThat(BACKEND.authorizations()).containsOnly(PAT);
     }
 
@@ -57,7 +58,7 @@ class TransitionIssueToolTest extends ServerTestSupport {
             assertInvalidArgument(call(client, "transition_issue", Map.of("issueKey", "ABC-1", "transition", "Reopen")),
                     "no such transition");
         }
-        assertThat(BACKEND.requests()).extracting(StubBackend.Request::method).containsExactly("GET", "GET");
+        assertThat(BACKEND.requests()).extracting(StubBackend.Request::method).containsExactly("GET", "GET", "GET");
     }
 
     @Test
@@ -109,7 +110,7 @@ class TransitionIssueToolTest extends ServerTestSupport {
             assertInvalidArgument(call(client, "transition_issue", Map.of("issueKey", "ABC-1", "transition", " Done")),
                     "transition must be");
         }
-        assertThat(BACKEND.requests()).isEmpty();
+        assertThat(BACKEND.writes()).as("the issue is read for the policy, the transition is not made").isEmpty();
     }
 
     @Test
@@ -160,6 +161,7 @@ class TransitionIssueToolTest extends ServerTestSupport {
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::method, StubBackend.Request::path)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/issue/ABC-3"),
+                        org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/project/DEF"),
                         org.assertj.core.groups.Tuple.tuple("GET", "/rest/api/2/issue/DEF-5/transitions"),
                         org.assertj.core.groups.Tuple.tuple("POST", "/rest/api/2/issue/DEF-5/transitions"));
     }

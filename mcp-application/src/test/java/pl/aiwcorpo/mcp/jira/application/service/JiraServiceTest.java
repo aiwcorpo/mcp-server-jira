@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
@@ -28,38 +29,13 @@ class JiraServiceTest {
     private final JiraService service = new JiraService(jira);
 
     @Test
-    void returnsTheIssueJiraShows() {
-        assertThat(service.getIssue("ABC-1").summary()).isEqualTo("Summary of ABC-1");
-    }
-
-    @Test
-    void anIssueJiraDoesNotShowIsNotFoundOrDenied() {
-        assertThatThrownBy(() -> service.getIssue("ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
-    }
-
-    @Test
-    void searchInAnInvisibleProjectNeverReachesTheSearch() {
-        assertThatThrownBy(() -> service.searchIssues(new IssueSearch("HR", null, null, null, null)))
-                .isInstanceOf(NotFoundOrDeniedException.class);
-        assertThat(jira.searches).isEmpty();
-    }
-
-    @Test
     void searchKeepsOnlyIssuesOfTheRequestedProject() {
-        jira.searchAnswer = new IssueSearchResult(2, List.of(ABC_1, issue("DEF-1", "DEF")));
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issue("DEF-1", "DEF")));
 
-        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "Open", null, null, null));
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "project = \"ABC\""));
 
         assertThat(result.issues()).extracting(JiraIssue::key).containsExactly("ABC-1");
-        assertThat(result.total()).as("hits that were dropped are not counted").isEqualTo(1);
-        assertThat(jira.searches).singleElement().satisfies(s -> assertThat(s.status()).isEqualTo("Open"));
-    }
-
-    @Test
-    void theTotalOfJiraStandsWhenNothingWasDropped() {
-        jira.searchAnswer = new IssueSearchResult(140, List.of(ABC_1));
-
-        assertThat(service.searchIssues(new IssueSearch("ABC", null, null, null, null)).total()).isEqualTo(140);
+        assertThat(jira.searches).singleElement().satisfies(s -> assertThat(s.jql()).isEqualTo("project = \"ABC\""));
     }
 
     @Test
@@ -118,13 +94,19 @@ class JiraServiceTest {
     }
 
     @Test
-    void writesGoToTheKeyJiraReportsAndAreReportedUnderIt() {
-        assertThat(service.addComment("ABC-3", "hello").issueKey()).isEqualTo("DEF-5");
-        TransitionOutcome moved = service.transitionIssue("ABC-3", "21");
-
-        assertThat(moved.issueKey()).isEqualTo("DEF-5");
+    void aWriteIsReportedUnderTheKeyItWasGiven() {
+        assertThat(service.addComment("DEF-5", "hello").issueKey()).isEqualTo("DEF-5");
+        assertThat(service.transitionIssue("DEF-5", "21").issueKey()).isEqualTo("DEF-5");
         assertThat(jira.commented).containsExactly("DEF-5");
         assertThat(jira.transitioned).containsExactly("DEF-5:21");
+    }
+
+    @Test
+    void deletingAnIssueJiraDoesNotShowIsNotFoundOrDenied() {
+        service.deleteIssue("ABC-1");
+
+        assertThatThrownBy(() -> service.deleteIssue("ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThat(jira.deleted).containsExactly("ABC-1", "ABC-2");
     }
 
     @Test
@@ -148,20 +130,21 @@ class JiraServiceTest {
 
     private static JiraIssue issue(String key, String project) {
         return new JiraIssue(key, project, "Task", "Open", null, "2026-10-20T12:00:00.000+0000",
-                "Summary of " + key, null);
+                "Summary of " + key, null, null);
     }
 
     private static final class FakeJira implements JiraResourcePort {
 
         final Map<String, JiraIssue> issues = Map.of("ABC-1", ABC_1);
-        /** Keys Jira still resolves, to the key it reports now. */
-        final Map<String, String> canonical = Map.of("ABC-1", "ABC-1", "ABC-3", "DEF-5", "DEF-5", "DEF-5");
+        /** Keys Jira shows to the caller. */
+        final Set<String> visible = Set.of("ABC-1", "DEF-5");
+        final List<String> deleted = new ArrayList<>();
         final List<IssueSearch> searches = new ArrayList<>();
         final List<String> transitioned = new ArrayList<>();
         final List<String> commented = new ArrayList<>();
         String commentBody;
         List<IssueTransition> available = List.of(new IssueTransition("21", "In Progress", "In Progress"));
-        IssueSearchResult searchAnswer = new IssueSearchResult(0, List.of());
+        IssueSearchResult searchAnswer = new IssueSearchResult(List.of());
 
         @Override
         public Optional<JiraProject> findProject(String projectKey) {
@@ -174,11 +157,6 @@ class JiraServiceTest {
         }
 
         @Override
-        public Optional<String> canonicalIssueKey(String issueKey) {
-            return Optional.ofNullable(canonical.get(issueKey));
-        }
-
-        @Override
         public IssueSearchResult search(IssueSearch search, int maxResults) {
             searches.add(search);
             return searchAnswer;
@@ -186,7 +164,7 @@ class JiraServiceTest {
 
         @Override
         public Optional<JiraComment> addComment(String issueKey, String body) {
-            if (!canonical.containsValue(issueKey)) {
+            if (!visible.contains(issueKey)) {
                 return Optional.empty();
             }
             commented.add(issueKey);
@@ -196,13 +174,19 @@ class JiraServiceTest {
 
         @Override
         public Optional<List<IssueTransition>> transitions(String issueKey) {
-            return canonical.containsValue(issueKey) ? Optional.of(available) : Optional.empty();
+            return visible.contains(issueKey) ? Optional.of(available) : Optional.empty();
         }
 
         @Override
         public boolean transition(String issueKey, String transitionId) {
             transitioned.add(issueKey + ":" + transitionId);
             return true;
+        }
+
+        @Override
+        public boolean deleteIssue(String issueKey) {
+            deleted.add(issueKey);
+            return visible.contains(issueKey);
         }
     }
 }

@@ -46,6 +46,7 @@ public class JiraToolErrors implements ToolErrorMapping {
                 case SEARCH -> "Jira does not know one of the values of status, assignee or type.";
                 case TRANSITION -> "Jira refused the transition; it may need fields this tool does not set.";
                 case COMMENT -> "Jira refused the comment body.";
+                case DELETE -> "Jira refused the deletion; the issue may have subtasks.";
             }));
         }
         return Optional.empty();

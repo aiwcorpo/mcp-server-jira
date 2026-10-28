@@ -8,7 +8,6 @@ import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
-import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
@@ -27,54 +26,39 @@ public class JiraService implements JiraUseCase {
         this.jira = jira;
     }
 
-    @Override
-    public JiraIssue getIssue(String issueKey) {
-        return jira.findIssue(issueKey).orElseThrow(NotFoundOrDeniedException::new);
-    }
-
     /**
-     * The project is looked up first: Jira answers a JQL naming a project the caller cannot see with 400 and
-     * the project name in the error, and this way the answer is the same {@code not_found_or_denied} as for
-     * an issue. It is also where the resolver of {@code Jira::Project} (starter beta) gets its attributes.
+     * The project of the search is a {@code @ResourceRef}, so the policy already judged it and Jira showed it to the
+     * caller. The JQL names the project; dropping any other project's issue keeps a mis-built query from leaking
+     * them, and the result filter of the starter then judges every remaining hit.
      */
     @Override
     public IssueSearchResult searchIssues(IssueSearch search) {
-        jira.findProject(search.projectKey()).orElseThrow(NotFoundOrDeniedException::new);
         IssueSearchResult found = jira.search(search, MAX_SEARCH_RESULTS);
-        // The JQL already names the project; dropping anything else keeps a mis-built query from leaking
-        // other projects. ResultFilter of the starter beta replaces this check.
-        List<JiraIssue> inProject = found.issues().stream()
+        return new IssueSearchResult(found.issues().stream()
                 .filter(issue -> search.projectKey().equals(issue.projectKey()))
-                .toList();
-        // A total that still counts what was dropped would tell the model how many hits it may not see.
-        int total = inProject.size() == found.issues().size() ? found.total() : inProject.size();
-        return new IssueSearchResult(total, inProject);
+                .toList());
     }
 
-    /**
-     * Both writing tools first ask Jira for the key it knows the issue under: an issue moved to another project
-     * still answers to its old key, and the write must go to, and be reported under, the key that is really
-     * written to. The visibility check of that read is the same one the write would meet.
-     */
     @Override
     public JiraComment addComment(String issueKey, String body) {
-        String key = canonicalKey(issueKey);
-        return jira.addComment(key, CommentText.asLiteral(body)).orElseThrow(NotFoundOrDeniedException::new);
+        return jira.addComment(issueKey, CommentText.asLiteral(body)).orElseThrow(NotFoundOrDeniedException::new);
     }
 
     @Override
     public TransitionOutcome transitionIssue(String issueKey, String transition) {
-        String key = canonicalKey(issueKey);
-        List<IssueTransition> available = jira.transitions(key).orElseThrow(NotFoundOrDeniedException::new);
+        List<IssueTransition> available = jira.transitions(issueKey).orElseThrow(NotFoundOrDeniedException::new);
         IssueTransition chosen = choose(available, transition);
-        if (!jira.transition(key, chosen.id())) {
+        if (!jira.transition(issueKey, chosen.id())) {
             throw new NotFoundOrDeniedException();
         }
-        return new TransitionOutcome(key, chosen);
+        return new TransitionOutcome(issueKey, chosen);
     }
 
-    private String canonicalKey(String issueKey) {
-        return jira.canonicalIssueKey(issueKey).orElseThrow(NotFoundOrDeniedException::new);
+    @Override
+    public void deleteIssue(String issueKey) {
+        if (!jira.deleteIssue(issueKey)) {
+            throw new NotFoundOrDeniedException();
+        }
     }
 
     /**

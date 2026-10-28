@@ -110,19 +110,9 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @Override
-    public Optional<String> canonicalIssueKey(String issueKey) {
-        return asUser(() -> client.get()
-                .uri("/rest/api/2/issue/{key}?fields=project", issueKey)
-                .headers(credential()::applyTo)
-                .retrieve()
-                .body(IssueResponse.class))
-                .map(IssueResponse::requireKey);
-    }
-
-    @Override
     public IssueSearchResult search(IssueSearch search, int maxResults) {
         Map<String, Object> request = Map.of(
-                "jql", JqlBuilder.build(search),
+                "jql", search.jql(),
                 "startAt", 0,
                 "maxResults", maxResults,
                 "fields", SEARCH_FIELDS,
@@ -188,6 +178,27 @@ public class JiraResourceAdapter implements JiraResourcePort {
                     .orElse(false);
         } catch (HttpClientErrorException.BadRequest rejected) {
             throw new RejectedByJiraException(Operation.TRANSITION);
+        }
+    }
+
+    @Override
+    public boolean deleteIssue(String issueKey) {
+        try {
+            return asUser(() -> client.delete()
+                    .uri("/rest/api/2/issue/{key}", issueKey)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .toBodilessEntity())
+                    .map(response -> {
+                        // Jira answers a deletion with 204; any other 2xx is not a confirmation.
+                        if (response.getStatusCode().value() != 204) {
+                            throw new BackendResponseException("delete answered " + response.getStatusCode().value());
+                        }
+                        return true;
+                    })
+                    .orElse(false);
+        } catch (HttpClientErrorException.BadRequest rejected) {
+            throw new RejectedByJiraException(Operation.DELETE);
         }
     }
 
@@ -296,7 +307,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
             IssueFields f = fields == null
                     ? new IssueFields(null, null, null, null, null, null, null) : fields;
             return new JiraIssue(requireKey(), f.project() == null ? null : f.project().key(), name(f.issuetype()),
-                    name(f.status()), name(f.assignee()), f.updated(), f.summary(), f.description());
+                    name(f.status()), name(f.assignee()), f.updated(), f.summary(), f.description(), null);
         }
 
         private static String name(Named named) {
@@ -305,13 +316,13 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record SearchResponse(int total, List<IssueResponse> issues) {
+    record SearchResponse(List<IssueResponse> issues) {
 
         IssueSearchResult toDomain() {
             if (issues == null) {
                 throw new BackendResponseException("search without issues");
             }
-            return new IssueSearchResult(total, issues.stream().map(IssueResponse::toDomain).toList());
+            return new IssueSearchResult(issues.stream().map(IssueResponse::toDomain).toList());
         }
     }
 

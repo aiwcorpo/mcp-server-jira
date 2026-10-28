@@ -17,13 +17,11 @@ public interface JiraResourcePort {
 
     Optional<JiraProject> findProject(String projectKey);
 
+    /** The issue under the key Jira knows it by now: a moved issue answers with its new key and project. */
     Optional<JiraIssue> findIssue(String issueKey);
 
     /** Issues of {@code search.projectKey()} matching the search, at most {@code maxResults}. */
     IssueSearchResult search(IssueSearch search, int maxResults);
-
-    /** The key Jira knows the issue under now (a moved issue answers with its new key); empty when not visible. */
-    Optional<String> canonicalIssueKey(String issueKey);
 
     /** Empty when the issue is not visible to the caller. */
     Optional<JiraComment> addComment(String issueKey, String body);
@@ -33,4 +31,7 @@ public interface JiraResourcePort {
 
     /** @return false when the issue is not visible to the caller */
     boolean transition(String issueKey, String transitionId);
+
+    /** @return false when the issue is not visible to the caller; true when Jira deleted it */
+    boolean deleteIssue(String issueKey);
 }
