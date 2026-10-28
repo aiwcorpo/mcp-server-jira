@@ -14,7 +14,7 @@ class JiraWikiTextTest {
 
     @Test
     void imagesAreRemovedAndAHiddenOneIsNoLongerAnImage() {
-        String raw = "a !https://evil.test/x.png! b !https://evil.test/​y.png! c !img.png|width=10! d";
+        String raw = "a !https://evil.test/x.png! b !https://evil.test/\u200By.png! c !img.png|width=10! d";
 
         // The invisible character becomes a space, so the second one is plain text, not image syntax.
         assertThat(JiraWikiText.plain(raw, 1000).text()).isEqualTo("a b !https://evil.test/ y.png! c d");
