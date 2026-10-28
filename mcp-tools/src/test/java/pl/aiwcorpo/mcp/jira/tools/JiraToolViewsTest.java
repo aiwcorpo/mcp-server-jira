@@ -8,7 +8,7 @@ class JiraToolViewsTest {
 
     @Test
     void aUserNameFromTheDirectoryLosesInvisibleCharactersAndIsCut() {
-        assertThat(JiraToolViews.username("al‮ice​")).doesNotContain("‮", "​");
+        assertThat(JiraToolViews.username("al\u202Eice\u200B")).doesNotContain("\u202E", "\u200B");
         assertThat(JiraToolViews.username("a".repeat(300))).hasSize(JiraToolViews.MAX_USERNAME);
         assertThat(JiraToolViews.username(null)).isNull();
     }
