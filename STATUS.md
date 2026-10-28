@@ -2,8 +2,9 @@
 
 M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-10 (wcześniej alpha-6), 103 testy na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
 
-Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-11`
-(kontrakty 2.1.1). M2 (manifest C6, `@ResourceRef`, `QueryScope`, `ResultFilter`) nie jest zaczęty.
+M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-2 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
+
+Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`); od rundy 6 BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-beta-2`.
 
 ## Runda 3: starter alpha-10 (2026-10-28)
 
@@ -80,8 +81,7 @@ rekordu z template'u, których tu nie ma; zachowanie pokrywają testy `mcp-app`)
 
 ## Co zostaje
 
-- M2/M3: manifest C6, `@ResourceRef` (resolver `Jira::Issue` ma gotowy `canonicalIssueKey` i `findProject`),
-  `QueryScope`, `ResultFilter` (wtedy `JiraService.searchIssues` traci ręczny filtr projektu).
+- M2/M3: zrobione w rundzie 6 (niżej). `JiraService.searchIssues` zachowuje filtr projektu jako drugą warstwę.
 - Kategoria (b), bez zmiany w tym repo: W-3 pozostaje decyzją kontraktów (CC-072 przyjęte, w 2.0.2 nie ma
   definicji `UntrustedText`; kształt jest zgodny z opisem, a `outputSchema` narzędzi będzie możliwy po
   przejściu na kontrakty 2.1.x z następnym starterem).
@@ -196,7 +196,7 @@ credential_resolve ok, tool_call ok (server), tool_call allow (gateway), missing
   tylko jedno z nich. Przejście wymagające pól na ekranie (400 Jiry) kończy się `invalid_argument`.
 - Bez stronicowania w `search_issues` (jedna strona, 25 wyników, `total` w wyniku).
 
-## Miejsca na betę startera (M2/M3)
+## Miejsca na betę startera (M2/M3) - stan sprzed rundy 6, zrealizowane
 
 - `QueryScope`: `JqlBuilder.build` (mcp-integration) - jedyne miejsce, gdzie powstaje JQL; zawężenia dojdą jako
   kolejne klauzule `AND` wokół całego zapytania.
@@ -231,3 +231,71 @@ Brak w M1.
 ## Runda 5: starter alpha-11 (2026-10-28)
 
 BOM alpha-10 -> alpha-11 (MIGRATION-3.0.md, sekcja "Zmiany w 3.0.0-alpha-11"). `DevProfileLoopbackTest` sprawdza regułę guarda przez `DevProfileGuardAssertions.assertDevProfileLoopbackRule()` (A10-M1), więc przechodzi także w kontenerze CI. `./mvnw clean verify`: 103 testów, 0 błędów; `INVOCATION_ID=ci ./mvnw -B verify`: bez różnic. Start lokalny w profilu `dev`: health 200, POST /mcp bez JWT 401.
+
+## Runda 6: M3, starter beta-2 (2026-10-28)
+
+Przejście krok po kroku wg MIGRATION-3.0.md, każdy etap z zielonym `./mvnw clean verify` i osobnym commitem:
+
+| Etap | Co | Commit |
+| --- | --- | --- |
+| 1 | alpha-11 -> alpha-14 (sekcja "Jak przejść z alpha-11"): `DevProfileLoopbackTest` sprawdza kontekst serwera, kontrakty 2.2.5; brak wykluczeń platformy do usunięcia | `1e1a2fb` |
+| 2 | alpha-14 -> beta-1: `@ToolTitle` (polskie tytuły), `policy.*` i `manifest.*` w `application.yml` (zmienne środowiska, produkcja) i `application-dev.yml` (paczka z `http://127.0.0.1:18747`, klucz `test-policies-main-dev`, `allow-test-keys` tylko w `dev`), testy z grupami przykładowej paczki (`mcp-jira-read/write/destructive`, `mcp-jira-proj-ABC/DEF`) | `c6c72a1` |
+| 3 | beta-1 -> beta-2 i zasoby: `@ResourceRef`, resolvery, `StructuredQuery`, `ResultFilter`, `delete_issue`, obraz bez Alpine (cedar-java) | patrz `git log` |
+
+Kamienie pośrednie: (1) migracja bez nowej logiki, (2) zasoby i wyszukiwanie, (3) `delete_issue`, testy polityki i manifestu, dokumentacja.
+
+Co się zmieniło w kodzie:
+
+- Resolvery w `mcp-integration`: `JiraIssueResolver` (zgłoszenie z odpowiedzi Jiry plus `GET project/{key}` dla kategorii;
+  `fetchAll` szuka każdego projektu raz na listę i pomija element, którego odpowiedź jest nieużywalna) i
+  `JiraProjectResolver`. Id i projekt w opisie pochodzą z Jiry. Zgłoszenie bez projektu w odpowiedzi to błąd
+  odpowiedzi (`internal_error`), nie zasób bez klasyfikacji.
+- Odczyt klucza kanonicznego (`canonicalIssueKey`) zniknął: narzędzia zapisujące biorą klucz z zasobu pobranego przez
+  resolver (jeden `GET` mniej na zapis, ale `GET project` więcej). `getIssue` w use case też zniknął (narzędzie czyta
+  zasób z `ResourceContext`).
+- `JqlBuilder` usunięty; zapytanie powstaje w `JiraTool` z `policy.queryScope("Jira::Project").jql(...)`. Wygenerowany
+  JQL jest bajt w bajt taki jak poprzedni (test z dokładnym tekstem przeszedł bez zmian), plus `project in (...)` przy linku.
+- Domena: `IssueSearch(projectKey, jql)`, `IssueSearchResult` bez `total`, `JiraIssue.projectCategory`.
+- `delete_issue`: `DELETE /rest/api/2/issue/{key}`, 204 = usunięte; 404/403 -> `not_found_or_denied`, 401 ->
+  `credential_required`, 400 (podzadania) -> `invalid_argument` ze stałym tekstem, inne 2xx i 3xx -> `internal_error`.
+- Dockerfile: `eclipse-temurin:25-jre` (glibc) zamiast Alpine, jak w template.
+
+Odstępstwa i zmiany zachowania:
+
+- `search_issues` nie zwraca już `total` ani `returned` (starter nie poprawia liczników po filtrze, a liczba z Jiry
+  zdradzałaby zgłoszenia ukryte przez politykę). Model nie wie, czy jest więcej niż 25 wyników.
+- Walidacja argumentów, której nie wyraża schemat (pusty `body` po przycięciu, nazwa przejścia, wartości filtra
+  wyszukiwania), dzieje się teraz po resolverze, więc przy takim błędzie Jira dostaje odczyt zgłoszenia i projektu
+  (nigdy zapis ani zapytanie). Testy sprawdzają brak zapisów (`BACKEND.writes()`) i brak zapytań.
+- Komunikat `not_found_or_denied` z domeny serwera ma teraz ten sam tekst co odmowa startera ("The resource does not
+  exist or you do not have access to it."), żeby odmowa po resolverze (np. 403 na samym DELETE) nie różniła się od odmowy polityki.
+- `project` w `search_issues` jest `@ResourceRef` (inaczej niż w template, gdzie jest zwykłym argumentem): projekt
+  z kategorią `Restricted` daje `not_found_or_denied` jak nieistniejący, zamiast pustej listy. Poza linkiem wirtualnego
+  serwera starter odpowiada `access_denied` na projekt spoza zakresu (tak samo dla istniejącego i nie, test
+  `aLinkNarrowedToOneProjectHidesTheIssuesAndTheSearchOfAnother`), więc pusty wynik zamiast błędu nie jest możliwy.
+- Atrybuty polityki: Jira ma tylko `Jira::Project.category` (obowiązkowy, `""` bez kategorii); `labels` i
+  `classification` z entity-builder.md dotyczą innych systemów.
+- `jql_filter` zachowuje nazwę z briefu, choć model nie podaje JQL.
+
+Nie sprawdzone: wywołanie `delete_issue` przez prawdziwy gateway i kod TOTP (gateway, broker i portal są poza tym repo);
+serwer sprawdziłem na procesie hosta (port 18775, `dev`): paczka polityk pobrana z `18747` (`policy_bundle_loaded`),
+`manifest_ready tools=5`, health 200, `POST /mcp` i `GET /mcp-manifest` bez JWT 401. Czy aktualna paczka ws-09 przepuszcza
+`delete` dla `mcp-jira-destructive` przy `acr` z MFA, sprawdzi e2e z gateway'em.
+
+## Propozycje CC
+
+- Tekst `not_found_or_denied` w C10: starter ma stały tekst odmowy zasobu, a serwery mają własne komunikaty dla
+  wyjątków domeny. Proponuję zapisać w C10 jeden tekst dla tego kodu (albo zakaz własnych), żeby odmowy z różnych
+  warstw były nieodróżnialne z definicji, nie z uzgodnienia.
+- Odpowiedź na projekt spoza zakresu linku (`access_denied` ze startera dla płaskich typów w `@ResourceRef`): kontrakt
+  nie mówi, czy wyszukiwanie poza linkiem ma być błędem czy pustym wynikiem (README startera mówi: pusty wynik). Do rozstrzygnięcia.
+- Licznik wyników: wyszukiwanie bez `total` zostawia model bez informacji o kolejnych stronach. Propozycja: pole
+  `hasMore` liczone przez starter po filtrze (np. gdy surowa strona była pełna), zamiast liczników z systemu.
+
+## Czego potrzebują inni (runda 6)
+
+- ws-01: usługa `mcp-jira` w compose potrzebuje zmiennych `MCP_POLICY_URL`, `MCP_POLICY_KEY_ID`,
+  `MCP_POLICY_PUBLIC_KEY_FILE`, `MCP_POLICY_STATE_DIR`, `MCP_INTERNAL_URL`, `MCP_ACCEPTED_CREDENTIAL_TYPES` (README,
+  `application.yml`) i obrazu bez Alpine (`mcp-server-jira:m3-<sha>`).
+- ws-05/ws-09: rejestracja manifestu z `GET /mcp-manifest` (5 narzędzi, nowy `definitionHash` wszystkich: tytuły,
+  `outputSchema`); paczka musi mieć schemat 3.1.0.
