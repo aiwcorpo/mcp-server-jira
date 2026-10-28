@@ -1,14 +1,14 @@
 # STATUS - mcp-server-jira (ws-04)
 
-M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-10 (wcześniej alpha-6), 95 testów na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
+M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-10 (wcześniej alpha-6), 103 testy na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
 
 Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`), BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-alpha-10`
 (kontrakty 2.1.1). M2 (manifest C6, `@ResourceRef`, `QueryScope`, `ResultFilter`) nie jest zaczęty.
 
 ## Runda 3: starter alpha-10 (2026-10-28)
 
-Z alpha-6 na 3.0.0-alpha-10 (BOM, kontrakty 2.1.1). Testy: `./mvnw clean verify` 95, 0 błędów (JiraServiceTest 14,
-JqlBuilderTest 4, JiraWikiTextTest 8, mcp-app 69). Uruchomienie lokalne wg README (port 18500, `dev`): health 200,
+Z alpha-6 na 3.0.0-alpha-10 (BOM, kontrakty 2.1.1). Testy: `./mvnw clean verify` 103, 0 błędów (JiraServiceTest 14,
+JqlBuilderTest 4, JiraWikiTextTest 14, JiraToolErrorsTest 2, mcp-app 69). Uruchomienie lokalne wg README (port 18500, `dev`): health 200,
 `POST /mcp` bez JWT 401, proces zatrzymany.
 
 - Limity na każdym poziomie: `JqlFilter` to rekord z `@ArgumentLimits` (`minLength 1`, `maxLength` 60/100/60) i
@@ -24,7 +24,7 @@ JqlBuilderTest 4, JiraWikiTextTest 8, mcp-app 69). Uruchomienie lokalne wg READM
 - J2-L2: `JiraWikiText` zamienia opis z wiki markup na tekst. Kolejność: dekodowanie encji (`&#8203;`), `normalize`,
   `cut`, filtr (obrazy, makra `{code}`/`{noformat}`/`{panel}`..., `{{mono}}`, linki: `[tekst|url]` -> `tekst (url)`,
   `[url]` -> `url`, `[~user]` -> `user`; nagłówki, listy, tabele, cytaty, pogrubienia i podobne), `plainCut`.
-  Filtr powtarza się do braku zmian, bo usunięcie jednej konstrukcji może złożyć inną. Znak niewidoczny wewnątrz
+  Filtr powtarza się do braku zmian (najwyżej 5 rund), bo usunięcie jednej konstrukcji może złożyć inną; gdy po 5 rundach tekst dalej się zmienia, filtr jest fail-closed: z tekstu znikają wszystkie znaki `! { } [ ] |`. Znak niewidoczny wewnątrz
   `!url!` normalizacja zamienia na spację, więc taki tekst nie jest już składnią obrazu i wychodzi jako zwykły
   tekst z wykrzyknikami. Sekwencje `\*` nie są interpretowane (zostają jak napisane). Streszczenie (`summary`) w Jirze
   to pole jednowierszowe, nie markup: tylko higiena i cięcie. Komentarze nie są zwracane przez żadne narzędzie.
@@ -59,7 +59,7 @@ JqlBuilderTest 4, JiraWikiTextTest 8, mcp-app 69). Uruchomienie lokalne wg READM
 | W-4, W-5 (starter) | W-4 zamknięte (jedna implementacja w starterze); W-5 (normalizacja `\p{Cf}` w tekście z systemu) tylko dla nazw, tekst zgłoszenia bez zmian: wymaga decyzji startera | |
 | W-6 neutralizacja markupu w UPDATE | patrz J-M6 | |
 | W-7 zasób przeniesiony przy UPDATE | patrz J-M5 | |
-| J2-M1 odmowa niejednoznacznego przejścia bez celu | poprawione: komunikat zawiera pary `id -> status docelowy` (nazwa statusu z Jiry przez `JiraToolViews.name`: do 60 znaków, bez znaków sterujących; id tylko liczbowe); wyjątek niesie kandydatów, nie same id | `JiraToolErrors`, `AmbiguousTransitionException.candidates()`; `TransitionIssueToolTest.aNameSharedByTwoTransitionsIsRefusedWithTheIdsToChooseFrom` (oczekuje `41 -> Done` i `42 -> Rejected`), `JiraServiceTest.aNameSharedByTwoTransitionsIsNotGuessed` |
+| J2-M1 odmowa niejednoznacznego przejścia bez celu | poprawione: komunikat zawiera pary `id -> status docelowy` (nazwa statusu z Jiry przez `JiraToolViews.name`: do 60 znaków, bez znaków sterujących; id tylko liczbowe); wyjątek niesie kandydatów, nie same id | `JiraToolErrors`, `AmbiguousTransitionException.candidates()`; `TransitionIssueToolTest.aNameSharedByTwoTransitionsIsRefusedWithTheIdsToChooseFrom` (oczekuje `41 -> 'Done'` i `42 -> 'Rejected'`), `JiraServiceTest.aNameSharedByTwoTransitionsIsNotGuessed` |
 | J2-L1 wzmianki `[~user]` w `{noformat}` | otwarte, do sprawdzenia na instancji DC: komentarz `{noformat}[~user]{noformat}` i skrzynka powiadomień. Test w repo widzi tylko tekst wysłany do stuba. Niezależnie od wyniku tani środek to rozbicie `[~` w `CommentText` (np. na `[ ~`); nie wprowadzone, bo zmienia treść komentarza i wymaga decyzji, czy wzmianki mają kiedykolwiek działać | `CommentText`, `AddCommentToolTest.markupThatMakesRequestsOrNotificationsReachesJiraAsLiteralText` |
 | J2-L2 opis zgłoszenia jako surowy wiki markup z `format: text/plain` | zamknięte w alpha-10: konwersja po stronie serwera (`JiraWikiText`), opisana niżej | `JiraWikiTextTest`, `GetIssueToolTest.theDescriptionIsPlainTextWithoutWikiMarkupImagesAndMacros` |
 
@@ -217,3 +217,13 @@ credential_resolve ok, tool_call ok (server), tool_call allow (gateway), missing
 ## Propozycje zmian kontraktu
 
 Brak w M1.
+
+## Runda 4: poprawki przeglądu alpha-10 (2026-10-28)
+
+| Znalezisko | Status | Dowód |
+| --- | --- | --- |
+| J3-M1 filtr kwadratowy x 50 rund (DoS) | poprawione: `INLINE` patrzy najwyżej 200 znaków w przód, 5 rund zamiast 50, `TRAILING_SPACE` bez kwadratowego skanu, tekst surowy ucinany przed dekodowaniem (10 x limit) | `JiraWikiTextTest.aCraftedDescriptionIsFilteredQuickly` (spreparowany opis z raportu poniżej 200 ms; zimna JVM ok. 100 ms), `hugeRawTextIsCutBeforeAnyFilterSeesIt` |
+| J3-L1 po wyczerpaniu rund zostaje `!url!` | poprawione: fail-closed (`dropSyntax`) | `nestingDeeperThanTheRoundsLeavesNoImageOrMacroSyntax` |
+| J3-L2 luki filtra | poprawione: obraz z adresem (`://`) usuwany także po literze (`see!https://...!`); drugie `cut` po filtrze (tabele rosną); test kolejności (`cut` przed filtrem). Do wiadomości, nie zmieniane: `&lt;img ...&gt;` po dekodowaniu zostaje tekstem `<img ...>`, a zawartość `{html}...{html}` zostaje jako tekst (jak C-L4 w Confluence: `text/plain` jest deklaracją, ryzyko po stronie klienta renderującego HTML); obraz Markdown `![a](u)` rozbija reguła linków; obraz bez adresu (`see!a.png!`) zostaje, bo `Wow!great!` jest zwykłym tekstem | `anImageGluedToAWordIsStillRemovedWhenItHasAnAddress`, `theResultIsCutAgainAfterTheFilterBecauseTableRowsGrow`, `theCutRemovesAClosingDelimiterBeforeTheFilterRuns` |
+| J3-L3 nazwy statusów w komunikacie C10 | poprawione: nazwa w apostrofach bez `'`, `"`, `,` i `->`, brak celu jako `?` | `JiraToolErrorsTest` |
+| A10-M1 `DevProfileLoopbackTest` | bez zmian, rozwiąże starter alpha-11 | |

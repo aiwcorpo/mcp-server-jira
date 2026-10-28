@@ -15,14 +15,27 @@ import pl.aiwcorpo.mcp.platform.text.UntrustedText;
  * image from it) and after the cut (a cut can remove a closing delimiter), and it repeats until nothing changes,
  * because removing one construct can join the pieces of another ({@code "!!a.png!b.png!"}). Backslash escapes
  * are not interpreted: {@code \*} stays as written, so no markup can appear that the filter has not seen.
+ *
+ * <p>Cost is bounded three ways: the raw text is capped before decoding, every pattern is either anchored to a
+ * line start or limited in how far it scans ({@link #INLINE} looks at most {@value #MAX_SPAN} characters ahead),
+ * and there are at most {@value #MAX_ROUNDS} rounds. When the rounds run out without a fixed point the text is not
+ * trusted: all syntax characters are dropped ({@link #dropSyntax}). After the filter the text is cut again,
+ * because a table row grows by its separators.
  */
 final class JiraWikiText {
+
+    private static final int MAX_ROUNDS = 5;
+    private static final int MAX_SPAN = 200;
+    /** An entity is at most 10 characters for one, so this much raw text can still decode to {@code maxLength}. */
+    private static final int RAW_PER_CHARACTER = 10;
 
     private static final Pattern NUMERIC_ENTITY = Pattern.compile("&#(?:[xX]([0-9a-fA-F]{1,6})|([0-9]{1,7}));");
     private static final Pattern NAMED_ENTITY = Pattern.compile("&(nbsp|amp|lt|gt|quot|apos);");
 
     /** {@code !file.png!}, {@code !http://host/x.png|width=10!}, also inside a link label. */
     private static final Pattern IMAGE = Pattern.compile("(?<![\\p{L}\\p{N}])!(?=[^\\s!])[^\\s!|]+(?:\\|[^!\\n]*)?!");
+    /** An image with an address is removed even when glued to the word before it ({@code see!https://host/x.png!}). */
+    private static final Pattern IMAGE_URL = Pattern.compile("!(?=[^\\s!])[^\\s!|]*://[^\\s!|]*(?:\\|[^!\\n]*)?!");
     /** Macro tags: {@code {code:java}}, {@code {noformat}}, {@code {panel:title=x}}, {@code {color:red}}. */
     private static final Pattern MACRO_TAG = Pattern.compile("\\{[A-Za-z][A-Za-z0-9-]*(?::[^{}\\n]*)?\\}");
     private static final Pattern MONOSPACE = Pattern.compile("\\{\\{|\\}\\}");
@@ -36,11 +49,11 @@ final class JiraWikiText {
     private static final Pattern LINE_BREAK = Pattern.compile("\\\\\\\\");
     /** {@code *bold*}, {@code _italic_}, {@code +underline+}, {@code -strike-}, {@code ^sup^}, {@code ~sub~}, {@code ??cite??}. */
     private static final Pattern INLINE = Pattern.compile(
-            "(?<![\\p{L}\\p{N}\\\\])(\\?\\?|[*_+^~-])(?=[^\\s])([^\\n]+?)(?<=[^\\s])\\1(?![\\p{L}\\p{N}])");
+            "(?<![\\p{L}\\p{N}\\\\])(\\?\\?|[*_+^~-])(?=[^\\s])([^\\n]{1," + MAX_SPAN + "}?)(?<=[^\\s])\\1(?![\\p{L}\\p{N}])");
     private static final Pattern SPACE_RUN = Pattern.compile("[ \\t]{2,}");
-    private static final Pattern TRAILING_SPACE = Pattern.compile("(?m)[ \\t]+$");
+    private static final Pattern TRAILING_SPACE = Pattern.compile("(?m)(?<![ \\t])[ \\t]+$");
     private static final Pattern BLANK_LINES = Pattern.compile("\\n{3,}");
-    private static final int MAX_ROUNDS = 50;
+    private static final Pattern SYNTAX_CHARACTERS = Pattern.compile("[!{}\\[\\]|]");
 
     private JiraWikiText() {
     }
@@ -49,9 +62,14 @@ final class JiraWikiText {
         if (raw == null) {
             return null;
         }
-        String normalized = TextHygiene.normalize(decodeEntities(raw));
+        int rawLimit = (int) Math.min((long) maxLength * RAW_PER_CHARACTER, Integer.MAX_VALUE);
+        boolean rawCapped = raw.length() > rawLimit;
+        String bounded = rawCapped ? raw.substring(0, rawLimit - (Character.isHighSurrogate(raw.charAt(rawLimit - 1)) ? 1 : 0)) : raw;
+        String normalized = TextHygiene.normalize(decodeEntities(bounded));
         String cut = UntrustedText.cut(normalized, maxLength);
-        return UntrustedText.plainCut(strip(cut), cut.length() < normalized.length());
+        String filtered = strip(cut);
+        String result = UntrustedText.cut(filtered, maxLength);
+        return UntrustedText.plainCut(result, rawCapped || cut.length() < normalized.length() || result.length() < filtered.length());
     }
 
     static String decodeEntities(String raw) {
@@ -71,19 +89,27 @@ final class JiraWikiText {
 
     static String strip(String text) {
         String current = text;
-        for (int round = 0; round < MAX_ROUNDS; round++) {
+        boolean settled = false;
+        for (int round = 0; round < MAX_ROUNDS && !settled; round++) {
             String next = round(current);
-            if (next.equals(current)) {
-                break;
-            }
+            settled = next.equals(current);
             current = next;
+        }
+        if (!settled) {
+            current = dropSyntax(current);
         }
         String compact = SPACE_RUN.matcher(TRAILING_SPACE.matcher(current).replaceAll("")).replaceAll(" ");
         return BLANK_LINES.matcher(compact).replaceAll("\n\n").strip();
     }
 
+    /** Fail-closed result for text that keeps changing: nothing that could open an image, macro or link survives. */
+    static String dropSyntax(String text) {
+        return SYNTAX_CHARACTERS.matcher(text).replaceAll("");
+    }
+
     private static String round(String text) {
         String result = IMAGE.matcher(text).replaceAll("");
+        result = IMAGE_URL.matcher(result).replaceAll("");
         result = MONOSPACE.matcher(result).replaceAll("");
         result = MACRO_TAG.matcher(result).replaceAll("");
         result = LINK.matcher(result).replaceAll(JiraWikiText::linkText);

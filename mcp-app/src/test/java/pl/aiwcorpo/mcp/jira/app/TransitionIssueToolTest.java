@@ -119,7 +119,7 @@ class TransitionIssueToolTest extends ServerTestSupport {
                     Map.of("issueKey", "ABC-7", "transition", "Done"));
 
             assertInvalidArgument(result, "Several transitions have that name");
-            assertThat(text(result)).contains("41 -> Done").contains("42 -> Rejected");
+            assertThat(text(result)).contains("41 -> 'Done'").contains("42 -> 'Rejected'");
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::method).doesNotContain("POST");
     }

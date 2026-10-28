@@ -35,7 +35,7 @@ public class JiraToolErrors implements ToolErrorMapping {
             // cleaned like every name in a result; without it the model would pick an id blind.
             String choices = String.join(", ", ambiguous.candidates().stream()
                     .filter(t -> NUMERIC_ID.matcher(t.id()).matches())
-                    .map(t -> t.id() + " -> " + JiraToolViews.name(t.toStatus()))
+                    .map(t -> t.id() + " -> " + statusLabel(t.toStatus()))
                     .toList());
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(),
                     "Several transitions have that name; call again with the transition id (id -> target status), "
@@ -49,5 +49,14 @@ public class JiraToolErrors implements ToolErrorMapping {
             }));
         }
         return Optional.empty();
+    }
+
+    /** Quoted, without the characters that separate the entries of the list; an unknown target is "?". */
+    private static String statusLabel(String toStatus) {
+        String name = JiraToolViews.name(toStatus);
+        if (name == null || name.isBlank()) {
+            return "?";
+        }
+        return "'" + name.replace("'", " ").replace("\"", " ").replace(",", " ").replace("->", "-") + "'";
     }
 }
