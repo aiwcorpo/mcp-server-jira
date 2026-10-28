@@ -2,9 +2,9 @@
 
 M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_issue` READ_ONLY; `add_comment`, `transition_issue` UPDATE) na starterze 3.0.0-alpha-10 (wcześniej alpha-6), 103 testy na stubie Jiry, pełny zestaw e2e M1 (`mcp-e2e/run-m1.sh`: F1, A1, A2, A3, A9, A15) PASS na procesach hosta; recenzja M1 (J-M1..J-M6) poprawiona, obejścia alpha-5 usunięte, poprawki template'u c1258c4 przeniesione.
 
-M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-2 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
+M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
 
-Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`); od rundy 6 BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-beta-2`.
+Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`); od rundy 6 BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-beta-3`.
 
 ## Runda 3: starter alpha-10 (2026-10-28)
 
@@ -299,3 +299,7 @@ serwer sprawdziłem na procesie hosta (port 18775, `dev`): paczka polityk pobran
   `application.yml`) i obrazu bez Alpine (`mcp-server-jira:m3-<sha>`).
 - ws-05/ws-09: rejestracja manifestu z `GET /mcp-manifest` (5 narzędzi, nowy `definitionHash` wszystkich: tytuły,
   `outputSchema`); paczka musi mieć schemat 3.1.0.
+
+## Runda 7: starter beta-3 (2026-10-28)
+
+Podbicie BOM beta-2 -> beta-3 (MIGRATION "Z beta-2 na beta-3"). Wszystkie narzędzia zwracają rekordy, więc `@ResultWithoutResources` nie jest potrzebne; brak ręcznych `ToolCallback`; `@ResourceRef` nie stoi na komponentach argumentów. Bez zmian w kodzie.
