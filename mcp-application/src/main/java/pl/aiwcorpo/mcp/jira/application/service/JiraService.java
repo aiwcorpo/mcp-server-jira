@@ -8,6 +8,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
@@ -40,11 +41,14 @@ public class JiraService implements JiraUseCase {
     @Override
     public IssueSearchResult searchIssues(IssueSearch search) {
         IssueSearchResult found = jira.search(search, SEARCH_FETCH_SIZE);
-        return new IssueSearchResult(found.issues().stream()
+        List<JiraIssue> matching = found.issues().stream()
                 .filter(issue -> search.projectKey().equals(issue.projectKey()))
                 .filter(issue -> search.issueType() == null || search.issueType().equalsIgnoreCase(issue.type()))
-                .limit(MAX_SEARCH_RESULTS)
-                .toList());
+                .toList();
+        // The type is filtered here, so a full page of rows says nothing about issues of that type further down.
+        boolean typeFilterOnFullPage = search.issueType() != null && found.issues().size() >= SEARCH_FETCH_SIZE;
+        return new IssueSearchResult(matching.stream().limit(MAX_SEARCH_RESULTS).toList(),
+                matching.size() > MAX_SEARCH_RESULTS || typeFilterOnFullPage);
     }
 
     @Override

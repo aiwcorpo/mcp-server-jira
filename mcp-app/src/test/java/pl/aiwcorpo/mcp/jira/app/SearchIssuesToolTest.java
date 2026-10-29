@@ -59,6 +59,8 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(result.isError()).isFalse();
             assertThat(json(result).at("/issues")).hasSize(1);
             assertThat(json(result).at("/issues/0/key").asString()).isEqualTo("ABC-2");
+            assertThat(json(result).at("/hasMore").isBoolean()).as("the result says whether it may be incomplete").isTrue();
+            assertThat(json(result).at("/hasMore").asBoolean()).isFalse();
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
                 .isEqualTo("project in (\"ABC\") ORDER BY updated DESC");

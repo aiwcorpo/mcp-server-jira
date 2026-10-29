@@ -56,7 +56,28 @@ class JiraServiceTest {
         IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, ""));
 
         assertThat(result.issues()).hasSize(JiraService.MAX_SEARCH_RESULTS);
+        assertThat(result.hasMore()).as("15 matches were cut off").isTrue();
         assertThat(jira.searchSizes).containsExactly(JiraService.SEARCH_FETCH_SIZE);
+    }
+
+    @Test
+    void aTypeFilterOnAFullPageOfRowsSaysTheResultMayBeIncomplete() {
+        List<JiraIssue> rows = java.util.stream.IntStream.rangeClosed(1, JiraService.SEARCH_FETCH_SIZE)
+                .mapToObj(n -> issue("ABC-" + n, "ABC")).toList();
+        jira.searchAnswer = new IssueSearchResult(rows);
+
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "Bug", ""));
+
+        assertThat(result.issues()).isEmpty();
+        assertThat(result.hasMore()).as("older Bugs may exist below the 100 rows Jira was asked for").isTrue();
+    }
+
+    @Test
+    void aCompleteAnswerIsNotMarkedAsPossiblyIncomplete() {
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issueOfType("ABC-2", "Bug")));
+
+        assertThat(service.searchIssues(new IssueSearch("ABC", "Bug", "")).hasMore()).isFalse();
+        assertThat(service.searchIssues(new IssueSearch("ABC", null, "")).hasMore()).isFalse();
     }
 
     @Test

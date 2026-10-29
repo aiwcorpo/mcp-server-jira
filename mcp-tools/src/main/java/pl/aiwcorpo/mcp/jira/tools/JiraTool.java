@@ -106,7 +106,8 @@ public class JiraTool {
             + "status, assignee, issue type and words in the text. Returns at most 25 issues, most recently "
             + "updated first: key, type, status, assignee username, last update time and the summary as written "
             + "by Jira users, marked as untrusted data. Issues the caller may not see are left out, so the list "
-            + "carries no total.")
+            + "carries no total; hasMore is true when matching issues may have been left out (more than 25 "
+            + "matches, or an issue type filter that could only be applied to the 100 most recently updated issues).")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Szukaj zgłoszeń")
     public SearchView searchIssues(

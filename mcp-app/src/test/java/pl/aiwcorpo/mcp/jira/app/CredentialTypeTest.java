@@ -47,6 +47,47 @@ class CredentialTypeTest extends ServerTestSupport {
         assertThat(BACKEND.authorizations()).containsOnly(PAT);
     }
 
+    @Test
+    void aCredentialWithoutTheTypeHeaderOrWithAnotherSpellingIsRefused() throws Exception {
+        assertThat(rawGetIssue("user-secret")).as("control: the exact type passes").contains("\"key\":\"ABC-1\"");
+        BACKEND.reset();
+
+        for (String type : new String[] {null, "User-Secret", "unknown"}) {
+            String answer = rawGetIssue(type);
+
+            assertThat(answer).as(String.valueOf(type)).contains("internal_error").doesNotContain("\"key\":\"ABC-1\"");
+        }
+        assertThat(BACKEND.requests()).as("refused before the policy, the resolvers and Jira").isEmpty();
+    }
+
+    private String rawGetIssue(String type) throws Exception {
+        java.net.http.HttpClient http = java.net.http.HttpClient.newHttpClient();
+        java.util.function.Function<String, java.net.http.HttpRequest.Builder> request = body ->
+                java.net.http.HttpRequest.newBuilder(java.net.URI.create(baseUrl() + ENDPOINT))
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "application/json, text/event-stream")
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body));
+        java.net.http.HttpRequest.Builder init = request.apply("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",
+                "capabilities":{},"clientInfo":{"name":"type-test","version":"1"}}}""");
+        GATEWAY.user().username("jkowalski").groups(java.util.List.of(READ_GROUP)).mint().headers().forEach(init::header);
+        java.net.http.HttpResponse<String> initialized = http.send(init.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        String session = initialized.headers().firstValue("Mcp-Session-Id").orElseThrow();
+        java.net.http.HttpRequest.Builder ready = request.apply("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")
+                .header("Mcp-Session-Id", session);
+        GATEWAY.user().username("jkowalski").groups(java.util.List.of(READ_GROUP)).mint().headers().forEach(ready::header);
+        http.send(ready.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        java.net.http.HttpRequest.Builder call = request.apply("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_issue","arguments":{"issueKey":"ABC-1"}}}""")
+                .header("Mcp-Session-Id", session).header("X-MCP-Credential", PAT);
+        if (type != null) {
+            call.header("X-MCP-Credential-Type", type);
+        }
+        GATEWAY.user().username("jkowalski").groups(java.util.List.of(READ_GROUP)).tool("get_issue").mint().headers()
+                .forEach(call::header);
+        return http.send(call.build(), java.net.http.HttpResponse.BodyHandlers.ofString()).body();
+    }
+
     private McpSyncClient clientWithType(BackendCredential.Type type) {
         HttpClientStreamableHttpTransport transport = HttpClientStreamableHttpTransport.builder(baseUrl())
                 .endpoint(ENDPOINT)

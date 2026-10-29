@@ -68,11 +68,6 @@ class ManifestTest extends ServerTestSupport {
     }
 
     @Test
-    void theBuildArtifactIsTheManifestTheServerPublishes() throws Exception {
-        assertThat(JSON.readTree(java.nio.file.Files.readString(MANIFEST_FILE))).isEqualTo(manifest());
-    }
-
-    @Test
     void outsideTheDevstackProfileThereIsNoEnvironmentAndTheDefaultCredentialTypeComesFirst() throws Exception {
         JsonNode manifest = manifest();
 

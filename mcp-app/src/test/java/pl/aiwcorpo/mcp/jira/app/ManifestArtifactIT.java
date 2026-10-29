@@ -1,0 +1,49 @@
+package pl.aiwcorpo.mcp.jira.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * Runs after package (failsafe): the file of the build, {@code mcp-app/target/mcp-manifest.json}, is what the server
+ * publishes at {@code GET /mcp-manifest}. The test context overrides the version and the address of the manifest, so
+ * those two are left out of the comparison; the build itself compares the whole file with a server on the production
+ * configuration ({@link ManifestExport}).
+ */
+class ManifestArtifactIT extends ServerTestSupport {
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    @Test
+    void theBuildArtifactIsTheManifestTheServerPublishes() throws Exception {
+        HttpResponse<String> served = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/mcp-manifest"))
+                        .headers(GATEWAY.service().mint().headers().entrySet().stream()
+                                .flatMap(e -> java.util.stream.Stream.of(e.getKey(), e.getValue()))
+                                .toArray(String[]::new))
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        JsonNode artifact = JSON.readTree(Files.readString(MANIFEST_FILE));
+
+        assertThat(withoutVersionAndAddress(artifact)).isEqualTo(withoutVersionAndAddress(JSON.readTree(served.body())));
+        assertThat(artifact.has("environment")).as("only the devstack profile publishes environment=dev (CC-138)").isFalse();
+        assertThat(artifact.get("version").asString()).as("the version of the pom, not the 1.0.0 of the tests")
+                .isNotEqualTo("1.0.0").isNotBlank();
+        assertThat(artifact.at("/credential/acceptedTypes").toString()).isEqualTo("[\"user-secret\"]");
+    }
+
+    private static JsonNode withoutVersionAndAddress(JsonNode manifest) {
+        ObjectNode copy = (ObjectNode) manifest.deepCopy();
+        copy.remove("version");
+        copy.remove("internalUrl");
+        return copy;
+    }
+}

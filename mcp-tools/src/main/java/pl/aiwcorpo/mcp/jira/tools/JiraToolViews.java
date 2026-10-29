@@ -45,14 +45,14 @@ final class JiraToolViews {
             @Nullable String updated, UntrustedText summary) {
     }
 
-    record SearchView(String project, List<IssueListItem> issues) {
+    record SearchView(String project, List<IssueListItem> issues, boolean hasMore) {
 
         static SearchView of(String project, IssueSearchResult result) {
             List<IssueListItem> items = result.issues().stream()
                     .map(i -> new IssueListItem(i.key(), name(i.type()), name(i.status()), username(i.assignee()), i.updated(),
                             summaryText(i.summary())))
                     .toList();
-            return new SearchView(project, items);
+            return new SearchView(project, items, result.hasMore());
         }
     }
 

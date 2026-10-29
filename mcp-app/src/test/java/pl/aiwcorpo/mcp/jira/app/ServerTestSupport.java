@@ -42,8 +42,8 @@ abstract class ServerTestSupport {
     static final String PAT = "Bearer jira-pat-of-jkowalski-7f3a";
     static final JsonMapper JSON = JsonMapper.builder().build();
 
-    /** The manifest as a build artifact: the file the registration step of the pipeline takes (CC-133, CC-140). */
-    static final java.nio.file.Path MANIFEST_FILE = java.nio.file.Path.of("target", "mcp-manifest.json");
+    /** The manifest as a build artifact: the file the registration step of the pipeline takes, written by {@link ManifestExport}. */
+    static final java.nio.file.Path MANIFEST_FILE = java.nio.file.Path.of("target", "mcp-manifest.json").toAbsolutePath();
 
     static final TestGateway GATEWAY = TestGateway.start(SERVER_ID);
     static final StubBackend BACKEND = StubBackend.start();
@@ -51,10 +51,8 @@ abstract class ServerTestSupport {
     @DynamicPropertySource
     static void environment(DynamicPropertyRegistry registry) {
         GATEWAY.serverProperties().forEach((name, value) -> registry.add(name, () -> value));
-        // TestGateway accepts user-secret and user-oauth; Jira is registered with the type of its system only, and the
-        // manifest file of the build is what the pipeline registers.
+        // TestGateway accepts user-secret and user-oauth; Jira accepts the type of its system only.
         registry.add("aiwcorpo.mcp.platform.manifest.accepted-credential-types", () -> "user-secret");
-        registry.add("aiwcorpo.mcp.platform.manifest.output-file", () -> MANIFEST_FILE.toString());
         registry.add("jira.backend.base-url", BACKEND::baseUrl);
         // Short limits so the timeout and size tests run quickly; StubBackend's slow and huge issues exceed them.
         registry.add("jira.backend.read-timeout", () -> "1s");

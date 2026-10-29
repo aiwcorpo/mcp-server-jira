@@ -1,6 +1,6 @@
 # mcp-jira: serwer MCP platformy
 
-Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-beta-8 (Java 25, Spring Boot
+Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-beta-9 (Java 25, Spring Boot
 4.1.0, Spring AI 2.0.0, kontrakty `mcp-contracts` 4.1.0 przez BOM). Stoi wyłącznie za gateway'em platformy: przyjmuje
 ruch tylko po mTLS z wewnętrznym JWT gateway'a (C2), a do systemu docelowego woła z poświadczeniem
 użytkownika, które gateway dołącza do każdego żądania (C3). Bez poprawnego JWT odpowiada 401, nie ma trybu
@@ -131,12 +131,19 @@ wkłada treści odpowiedzi Jiry do żadnego komunikatu.
 - `not_found_or_denied` ma w całej platformie jeden tekst (`ToolErrorCode.NOT_FOUND_OR_DENIED_MESSAGE`).
   Grant na zasób jest oceniany przed resolverem: wywołujący bez zakresu projektu dostaje tę odmowę, zanim serwer
   zapyta Jirę.
-- Manifest do rejestracji w gateway'u to artefakt budowy: `./mvnw verify` zapisuje `mcp-app/target/mcp-manifest.json`
-  (`manifest.output-file` ustawione przez `ServerTestSupport`), z `acceptedTypes: ["user-secret"]` i bez pola
-  `environment`. Potok rejestruje ten plik certyfikatem `mcp-registry-ci-mcp-jira`; odpowiedź działającego
-  serwera (`GET /mcp-manifest`) nie jest źródłem rejestracji. Tylko `search_issues` i `get_issue` (`READ_ONLY`)
-  gateway zatwierdza sam; nowe i zmienione `add_comment`, `transition_issue` i `delete_issue` czekają na `approve`
-  administratora.
+- Manifest do rejestracji w gateway'u to artefakt budowy `mcp-app/target/mcp-manifest.json`, stała ścieżka. Powstaje
+  w fazie `package` każdego buildu, także z `-DskipTests` (`exec-maven-plugin` uruchamia `ManifestExport`, które startuje
+  aplikację z konfiguracją `application.yml`: wersja z pom, `internalUrl` i `acceptedTypes` z konfiguracji albo ze
+  zmiennych `MCP_INTERNAL_URL` i `MCP_ACCEPTED_CREDENTIAL_TYPES`, gdy są ustawione; podstawione są tylko klucze
+  gateway'a, paczka polityk i backend Jiry). Build kończy się błędem, gdy plik różni się od `GET /mcp-manifest` tej
+  aplikacji albo ma pole `environment`. Po `package` test `ManifestArtifactIT` (failsafe) porównuje plik z manifestem
+  serwera w kontekście testowym (bez `version` i `internalUrl`, które test nadpisuje). CI: `./mvnw -B package`, potem krok
+  rejestracji bierze `mcp-app/target/mcp-manifest.json` i wysyła go certyfikatem `mcp-registry-ci-mcp-jira`; odpowiedź
+  działającego serwera nie jest źródłem rejestracji. Tylko `search_issues` i `get_issue` (`READ_ONLY`) gateway
+  zatwierdza sam; nowe i zmienione `add_comment`, `transition_issue` i `delete_issue` czekają na `approve` administratora.
+- `search_issues` zwraca `hasMore`: `true`, gdy pasujących zgłoszeń jest więcej niż 25 albo gdy filtr `jql_filter.type`
+  (stosowany po odpowiedzi Jiry, bo `issuetype` nie jest polem kontraktu) objął pełne 100 wierszy i starsze zgłoszenia
+  tego typu mogły zostać pominięte. `false` oznacza kompletny wynik.
 - Profil `devstack` (stos deweloperski w kontenerach: `SPRING_PROFILES_ACTIVE=devstack` jako jedyny profil, zmienna
   środowiska `MCP_DEVSTACK_ACKNOWLEDGED=true` i `AIWCORPO_MCP_PLATFORM_DEVSTACK_ACKNOWLEDGED=true`, do tego
   `AIWCORPO_MCP_PLATFORM_POLICY_ALLOW_TEST_KEYS=true` i `AIWCORPO_MCP_PLATFORM_INTERNAL_JWT_ALLOW_TEST_KEYS=true`)
@@ -282,8 +289,9 @@ Wynik z 2026-10-27: STATUS.md, sekcja "Demo M1".
 | `JiraServiceTest` | przypadki użycia bez Springa: projekt przed wyszukiwaniem, filtr projektu i typu wyników, 100 wierszy z Jiry i 25 w wyniku, wybór przejścia (id przed nazwą, nazwa w całości, kilka pasujących odrzucone; zabija mutację `equals` -> `contains`), zapis pod kluczem kanonicznym, komentarz w `{noformat}` |
 | `DeleteIssueToolTest` | `delete_issue`: usunięcie z PAT użytkownika, `DESTRUCTIVE` w hintach, bez grupy destructive `access_denied` bez ruchu do Jiry, zgłoszenie restricted/przeniesione do restricted/403/nieistniejące z identyczną odpowiedzią, 401 przy odczycie i przy samym DELETE -> `credential_required`, podzadania -> `invalid_argument`, 200 zamiast 204 i przekierowanie -> `internal_error`, zgłoszenie przeniesione usuwane pod nowym kluczem |
 | `ResourcePolicyTest` | polityka na zasobach: restricted i przeniesione do restricted jak brak (każde narzędzie), wyszukiwanie w projekcie restricted jak w nieistniejącym, trafienia restricted i nieczytelne usunięte z listy, zapis bez zakresu projektu, link zawężony (`vsScopes`) nie zwraca ani nie przeszukuje zasobów spoza zakresu, awaria Jiry to nie odmowa |
-| `ManifestTest` | `GET /mcp-manifest` przechodzi reguły `mcp-manifest`, definicje i `definitionHash` zgodne z `tools/list`, ryzyko i `resourceRefs` każdego narzędzia, `delete_issue` jako `DESTRUCTIVE`; artefakt budowy `target/mcp-manifest.json` równy manifestowi serwera; bez `environment` poza `devstack`, `acceptedTypes` `["user-secret"]` |
-| `CredentialTypeTest` | typ spoza `[user-secret]` (`user-oauth`, `token-exchange`, `service-account`) -> `internal_error`, nic nie dociera do Jiry, PAT nie idzie w świat; `user-secret` przechodzi |
+| `ManifestTest` | `GET /mcp-manifest` przechodzi reguły `mcp-manifest`, definicje i `definitionHash` zgodne z `tools/list`, ryzyko i `resourceRefs` każdego narzędzia, `delete_issue` jako `DESTRUCTIVE`; bez `environment` poza `devstack`, `acceptedTypes` `["user-secret"]` |
+| `ManifestArtifactIT` | po `package`: plik `target/mcp-manifest.json` równy manifestowi serwera, wersja z pom (nie `1.0.0` testów), bez `environment` |
+| `CredentialTypeTest` | typ spoza `[user-secret]` (`user-oauth`, `token-exchange`, `service-account`), brak nagłówka typu, `User-Secret` i nieznany typ -> `internal_error`, nic nie dociera do Jiry, PAT nie idzie w świat; `user-secret` przechodzi |
 | `JiraResolversTest` | resolvery bez Springa: kategoria projektu w opisie, klucz i projekt z odpowiedzi Jiry, kategoria projektu raz na listę, zgłoszenie bez projektu |
 
 Nowe narzędzie dostaje test w tym samym stylu: klasa dziedziczy po `ServerTestSupport`, odpowiedź systemu

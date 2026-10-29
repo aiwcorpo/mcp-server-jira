@@ -4,7 +4,7 @@ M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_is
 
 M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
 
-M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-8 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt z argumentu jako zakres przez `QueryScope.narrowedTo`, `ORDER BY updated`; typ zgłoszenia filtrem po odpowiedzi), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt budowy `mcp-app/target/mcp-manifest.json`, licznik `mcp_audit_authentication_suppressed_total` w README, 147 testów na stubie Jiry; obraz `mcp-server-jira:m4-cedc20c` (beta-8, zbudowany z cedc20c; następny commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
+M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-9 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt z argumentu jako zakres przez `QueryScope.narrowedTo`, `ORDER BY updated`; typ zgłoszenia filtrem po odpowiedzi), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt fazy `package` `mcp-app/target/mcp-manifest.json` (także z `-DskipTests`, z konfiguracji produkcyjnej), licznik `mcp_audit_authentication_suppressed_total` w README, 151 testów (w tym 2 integracyjne po package) na stubie Jiry; obraz `mcp-server-jira:m4-cedc20c` (beta-8, zbudowany z cedc20c; następny commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
 
 ## M4: plan kamieni (2026-10-29)
 
@@ -18,13 +18,12 @@ Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md s
 
 K1, decyzje i zachowanie:
 
-- `search_issues`: JQL ma postać `(status = "..." AND assignee = "..." AND text ~ "...") AND project in (...) ORDER BY updated DESC`.
+- `search_issues` (K1; zapytanie bez klauzuli projektu, projekt filtrowany po odpowiedzi; zastąpione w beta-8): JQL ma postać `(status = "..." AND assignee = "..." AND text ~ "...") AND project in (...) ORDER BY updated DESC`.
   Pola warunków: `status`, `assignee`, `text` (podzbiór `JQL_CONDITION_FIELDS`), `ORDER BY`: `updated`. `project` i `issuetype`
   nie są polami warunków w kontrakcie 4.x, więc wypadły z JQL; projekt z argumentu i `jql_filter.type` serwer stosuje do
   wierszy (`JiraService.searchIssues`, `IssueSearch.issueType`). Ponieważ zapytanie nie nazywa już projektu, serwer prosi Jirę
   o 100 wierszy (`SEARCH_FETCH_SIZE`) i oddaje najwyżej 25; bez tego strona 25 wierszy z wielu projektów mogłaby nie zawierać
-  nic z żądanego. Wyniki mogą być uboższe niż przy zapytaniu z `project = "X"`, gdy użytkownik widzi dużo projektów:
-  patrz "Propozycje CC".
+  nic z żądanego. (Stan K1; od beta-8 projekt jest zakresem zapytania, patrz "Beta-8".)
 - Typ poświadczenia: w repo nie było właściwości `credential-type`; `accepted-credential-types` to `user-secret` (typ domyślny).
   `CredentialTypeTest`: `user-oauth`, `token-exchange`, `service-account` -> `internal_error`, nic nie dociera do Jiry.
   `ServerTestSupport` ustawia w testach `accepted-credential-types=user-secret` (domyślnie `TestGateway` przyjmuje też `user-oauth`),
@@ -364,3 +363,15 @@ Podbicie BOM beta-2 -> beta-3 (MIGRATION "Z beta-2 na beta-3"). Wszystkie narzę
 | J-5 `fetchAll` | bez zmian: mock Jiry z mcp-platform-dev odpowiada na `key in (...)` wspólną pustą odpowiedzią (mapowania szukają `project = X`), więc zbiorcze zapytanie wycięłoby wszystkie trafienia w dev. Zostaje pętla (jedno `GET issue` na trafienie, projekt raz na listę, najwyżej 25). Do zrobienia, gdy mock zacznie obsługiwać `key in` |
 | J-6 `assignee` | poprawione: `TextHygiene.normalize` i cięcie do 100 (`JiraToolViewsTest`) |
 | J-7 DELETE z 200 | odmowa zostaje (`internal_error`), dodane zdarzenie logu `event=delete_unconfirmed status=200`; `internal_error` po `delete_issue` nie znaczy "nie usunięto" |
+
+## Poprawki po przeglądzie M4 i beta-9 (2026-10-29)
+
+- Beta-9: podbicie wersji; jedyna zmiana dla Jiry to usunięcie obejść linku, a takich nie było.
+- HIGH, manifest: artefakt powstaje w fazie `package` (`exec-maven-plugin` + `ManifestExport` z katalogu testów), także z
+  `-DskipTests`, z konfiguracji `application.yml` (wersja z pom, nie `1.0.0` z `TestGateway`), w stałym miejscu
+  `mcp-app/target/mcp-manifest.json`. Build porównuje plik z `GET /mcp-manifest` tej aplikacji; po `package` robi to też
+  `ManifestArtifactIT` (failsafe). Zależność: `exec-maven-plugin` 3.5.0 i `maven-failsafe-plugin` (z BOM Spring Boot).
+- MEDIUM: `search_issues` zwraca `hasMore` (więcej niż 25 trafień albo filtr typu na pełnych 100 wierszach); testy w
+  `JiraServiceTest` i `SearchIssuesToolTest`. Do czasu dodania `issuetype` do pól kontraktu (Propozycje CC) to jedyny sygnał.
+- LOW: `CredentialTypeTest` ma przypadek braku nagłówka typu, `User-Secret` i nieznanego typu przy żądaniu z `X-MCP-Credential`;
+  `MANIFEST_FILE` jest bezwzględny; opis w SECURITY.md i STATUS poprawiony po beta-8.
