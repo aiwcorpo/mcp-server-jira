@@ -48,15 +48,15 @@ class JiraServiceTest {
     }
 
     @Test
-    void searchAsksForMoreRowsThanItReturnsBecauseProjectAndTypeAreAppliedAfterwards() {
+    void searchAsksForMoreRowsThanTheResultHoldsBecauseTheTypeIsAppliedAfterwards() {
         List<JiraIssue> rows = java.util.stream.IntStream.rangeClosed(1, 40)
                 .mapToObj(n -> issue("ABC-" + n, "ABC")).toList();
         jira.searchAnswer = new IssueSearchResult(rows);
 
         IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, ""));
 
-        assertThat(result.issues()).hasSize(JiraService.MAX_SEARCH_RESULTS);
-        assertThat(result.hasMore()).as("15 matches were cut off").isTrue();
+        assertThat(result.issues()).as("the tool cuts the list after the policy has judged the hits").hasSize(40);
+        assertThat(result.hasMore()).as("the number of matches is not a signal: some may be hidden by the policy").isFalse();
         assertThat(jira.searchSizes).containsExactly(JiraService.SEARCH_FETCH_SIZE);
     }
 

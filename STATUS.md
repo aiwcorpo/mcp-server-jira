@@ -4,7 +4,7 @@ M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_is
 
 M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
 
-M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-9 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt z argumentu jako zakres przez `QueryScope.narrowedTo`, `ORDER BY updated`; typ zgłoszenia filtrem po odpowiedzi), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt fazy `package` `mcp-app/target/mcp-manifest.json` (także z `-DskipTests`, z konfiguracji produkcyjnej), licznik `mcp_audit_authentication_suppressed_total` w README, 151 testów (w tym 2 integracyjne po package) na stubie Jiry; obraz `mcp-server-jira:m4-77a9ed9` (beta-9, zbudowany z 77a9ed9; następny commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
+M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-9 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt z argumentu jako zakres przez `QueryScope.narrowedTo`, `ORDER BY updated`; typ zgłoszenia filtrem po odpowiedzi), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt fazy `package` `mcp-app/target/mcp-manifest.json` (także z `-DskipTests`, z konfiguracji produkcyjnej), licznik `mcp_audit_authentication_suppressed_total` w README, 153 testów (w tym 2 integracyjne po package) na stubie Jiry; obraz `mcp-server-jira:m4-77a9ed9` (beta-9, zbudowany z 77a9ed9; następny commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
 
 ## M4: plan kamieni (2026-10-29)
 
@@ -375,3 +375,10 @@ Podbicie BOM beta-2 -> beta-3 (MIGRATION "Z beta-2 na beta-3"). Wszystkie narzę
   `JiraServiceTest` i `SearchIssuesToolTest`. Do czasu dodania `issuetype` do pól kontraktu (Propozycje CC) to jedyny sygnał.
 - LOW: `CredentialTypeTest` ma przypadek braku nagłówka typu, `User-Secret` i nieznanego typu przy żądaniu z `X-MCP-Credential`;
   `MANIFEST_FILE` jest bezwzględny; opis w SECURITY.md i STATUS poprawiony po beta-8.
+- Przegląd bezpieczeństwa (MEDIUM, ujawnienie informacji): `hasMore` było liczone przed filtrem polityki, więc 26 trafień z
+  jednym ukrytym dawało `hasMore: true` przy 25 widocznych. Teraz serwis zwraca wszystkie pasujące wiersze (bez cięcia), a
+  `JiraTool.visiblePage` ocenia je `policy.retainAllowedById` w partiach po 26, tnie do 25 widocznych i ustawia `hasMore` z
+  widocznych (albo z filtra typu na pełnych 100 wierszach, co zależy tylko od strony Jiry). Testy:
+  `SearchIssuesToolTest.aHiddenHitDoesNotChangeTheAnswerAsToHasMore`, `moreThan25VisibleHitsSayHasMore`. Reszta: flaga przy
+  filtrze typu zależy od surowej liczby wierszy (100), więc dokładnie na tej granicy ukryty wiersz mógłby ją przestawić;
+  pominięte jako nieistotne informacyjnie.

@@ -18,11 +18,9 @@ import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 /** Use cases of the server. A plain class: mcp-app makes it a bean, so this module stays free of Spring. */
 public class JiraService implements JiraUseCase {
 
-    /** One page only; the model narrows the search instead of paging through a project. */
-    static final int MAX_SEARCH_RESULTS = 25;
     /**
      * Rows asked from Jira before the issue type is applied to them: the type is not a field a query may use, so a page
-     * of {@link #MAX_SEARCH_RESULTS} could hold none of the requested type.
+     * of the result size could hold none of the requested type.
      */
     static final int SEARCH_FETCH_SIZE = 100;
 
@@ -45,10 +43,11 @@ public class JiraService implements JiraUseCase {
                 .filter(issue -> search.projectKey().equals(issue.projectKey()))
                 .filter(issue -> search.issueType() == null || search.issueType().equalsIgnoreCase(issue.type()))
                 .toList();
-        // The type is filtered here, so a full page of rows says nothing about issues of that type further down.
+        // Only what Jira reports about the page itself: the number of matches says nothing a caller may rely on, because
+        // some of them may be hidden from the caller by the policy, which is judged afterwards (the tool cuts the list
+        // to the visible hits and sets hasMore from that).
         boolean typeFilterOnFullPage = search.issueType() != null && found.issues().size() >= SEARCH_FETCH_SIZE;
-        return new IssueSearchResult(matching.stream().limit(MAX_SEARCH_RESULTS).toList(),
-                matching.size() > MAX_SEARCH_RESULTS || typeFilterOnFullPage);
+        return new IssueSearchResult(matching, typeFilterOnFullPage);
     }
 
     @Override

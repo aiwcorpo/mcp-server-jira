@@ -1,5 +1,6 @@
 package pl.aiwcorpo.mcp.jira.tools;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -69,6 +70,8 @@ public class JiraTool {
     static final Set<String> SEARCH_ORDER_FIELDS = Set.of("updated");
 
     public static final int MAX_NAME = 60;
+    /** One page only; the model narrows the search instead of paging through a project. */
+    static final int MAX_SEARCH_RESULTS = 25;
     public static final int MAX_USERNAME = 100;
     static final int MAX_TEXT = 200;
     static final int MAX_BODY = 10_000;
@@ -136,7 +139,25 @@ public class JiraTool {
                 .where("text", Operator.CONTAINS, words)
                 .orderBy("updated", Direction.DESC)
                 .build();
-        return SearchView.of(project, useCase.searchIssues(new IssueSearch(project, type, jql)));
+        IssueSearchResult found = useCase.searchIssues(new IssueSearch(project, type, jql));
+        return SearchView.of(project, visiblePage(found));
+    }
+
+    /**
+     * The first {@link #MAX_SEARCH_RESULTS} hits the policy lets the caller see, and {@code hasMore} judged on those
+     * alone: counting hits the caller may not see would tell, through the flag, that hidden issues exist. The hits are
+     * judged in small batches (each result is cached for the call, the platform reuses it when it filters the result
+     * itself), so a page rarely costs more lookups than it shows.
+     */
+    private IssueSearchResult visiblePage(IssueSearchResult found) {
+        List<JiraIssue> visible = new ArrayList<>();
+        List<JiraIssue> rows = found.issues();
+        for (int from = 0; from < rows.size() && visible.size() <= MAX_SEARCH_RESULTS; from += MAX_SEARCH_RESULTS + 1) {
+            List<JiraIssue> batch = rows.subList(from, Math.min(rows.size(), from + MAX_SEARCH_RESULTS + 1));
+            visible.addAll(policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, batch, JiraIssue::key));
+        }
+        return new IssueSearchResult(visible.stream().limit(MAX_SEARCH_RESULTS).toList(),
+                found.hasMore() || visible.size() > MAX_SEARCH_RESULTS);
     }
 
     @Tool(name = "add_comment", description = "Adds a comment to one Jira issue as the calling user. The text is "

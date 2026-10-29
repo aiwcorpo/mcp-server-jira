@@ -141,9 +141,12 @@ wkłada treści odpowiedzi Jiry do żadnego komunikatu.
   rejestracji bierze `mcp-app/target/mcp-manifest.json` i wysyła go certyfikatem `mcp-registry-ci-mcp-jira`; odpowiedź
   działającego serwera nie jest źródłem rejestracji. Tylko `search_issues` i `get_issue` (`READ_ONLY`) gateway
   zatwierdza sam; nowe i zmienione `add_comment`, `transition_issue` i `delete_issue` czekają na `approve` administratora.
-- `search_issues` zwraca `hasMore`: `true`, gdy pasujących zgłoszeń jest więcej niż 25 albo gdy filtr `jql_filter.type`
-  (stosowany po odpowiedzi Jiry, bo `issuetype` nie jest polem kontraktu) objął pełne 100 wierszy i starsze zgłoszenia
-  tego typu mogły zostać pominięte. `false` oznacza kompletny wynik.
+- `search_issues` zwraca `hasMore`, liczone wyłącznie z wyników widocznych dla wywołującego: `true`, gdy widocznych
+  trafień jest więcej niż 25, albo gdy filtr `jql_filter.type` (stosowany po odpowiedzi Jiry, bo `issuetype` nie jest polem
+  kontraktu) objął pełne 100 wierszy i starsze zgłoszenia tego typu mogły zostać pominięte. Trafienia ukryte przez
+  politykę (np. zgłoszenie przeniesione do projektu `Restricted`) nie wpływają na flagę ani na liczbę wyników: 26 trafień
+  z jednym ukrytym jest nieodróżnialne od 25 widocznych. Serwer ocenia trafienia partiami po 26 (wynik resolvera jest
+  buforowany na czas wywołania i używany ponownie przez filtr platformy).
 - Profil `devstack` (stos deweloperski w kontenerach: `SPRING_PROFILES_ACTIVE=devstack` jako jedyny profil, zmienna
   środowiska `MCP_DEVSTACK_ACKNOWLEDGED=true` i `AIWCORPO_MCP_PLATFORM_DEVSTACK_ACKNOWLEDGED=true`, do tego
   `AIWCORPO_MCP_PLATFORM_POLICY_ALLOW_TEST_KEYS=true` i `AIWCORPO_MCP_PLATFORM_INTERNAL_JWT_ALLOW_TEST_KEYS=true`)

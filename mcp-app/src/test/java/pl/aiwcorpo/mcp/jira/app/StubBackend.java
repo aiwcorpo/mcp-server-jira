@@ -48,6 +48,8 @@ final class StubBackend {
     static final long SLOW_MILLIS = 4_000;
     static final int HUGE_BYTES = 256 * 1024;
 
+    /** Keys of the 25 visible hits of a search for "many hits". */
+    private static final Pattern MANY_HITS_KEY = Pattern.compile("ABC-1[0-2][0-9]");
     private static final Pattern PROJECT = Pattern.compile("/rest/api/2/project/([^/]+)");
     private static final Pattern ISSUE = Pattern.compile("/rest/api/2/issue/([^/]+)(/comment|/transitions)?");
 
@@ -175,6 +177,10 @@ final class StubBackend {
                     {"errorMessages":["The value 'Nope' does not exist for the field 'status'."],"errors":{}}""");
             return;
         }
+        if (body.contains("many hits")) {
+            respond(exchange, 200, manyHits(body.contains("one hidden"), body.contains("visible extra")));
+            return;
+        }
         String stale = body.contains("stale index") ? STALE_HITS : "";
         respond(exchange, 200, """
                 {"expand":"names,schema","startAt":0,"maxResults":25,"total":3,"issues":[
@@ -185,6 +191,28 @@ final class StubBackend {
                  {"id":"10200","key":"DEF-1","fields":{"summary":"Shared CI runner","project":{"key":"DEF"},
                   "issuetype":{"name":"Task"},"status":{"name":"To Do"},"assignee":null,"updated":"2026-10-19T08:00:00.000+0000"}}%s
                 ]}""".formatted(ISSUE_ABC_1, stale));
+    }
+
+    /** 25 visible issues, plus ABC-30 (listed under ABC by the index, in the restricted project HR for Jira) on request. */
+    private static String manyHits(boolean withHidden, boolean withVisibleExtra) {
+        StringBuilder rows = new StringBuilder();
+        for (int number = 100; number < 125; number++) {
+            rows.append(hit("ABC-" + number)).append(",\n");
+        }
+        if (withVisibleExtra) {
+            rows.append(hit("ABC-2")).append(",\n");
+        }
+        if (withHidden) {
+            rows.append(hit("ABC-30")).append(",\n");
+        }
+        rows.setLength(rows.length() - 2);
+        return "{\"startAt\":0,\"maxResults\":100,\"total\":%d,\"issues\":[%s]}".formatted(withHidden ? 26 : 25, rows);
+    }
+
+    private static String hit(String key) {
+        return """
+                {"id":"1","key":"%s","fields":{"summary":"Hit %s","project":{"key":"ABC"},"issuetype":{"name":"Task"},
+                 "status":{"name":"To Do"},"assignee":null,"updated":"2026-10-18T08:00:00.000+0000"}}""".formatted(key, key);
     }
 
     private void issue(HttpExchange exchange, String method, String key, String sub, String authorization,
@@ -207,7 +235,7 @@ final class StubBackend {
             respond(exchange, 200, RESTRICTED_ISSUE.replace("HR-1", "HR-1".equals(key) ? key : "HR-2"));
         } else if (sub == null && !write && "DEF-5".equals(key)) {
             respond(exchange, 200, MOVED_ISSUE);
-        } else if (sub == null && !write && PLAIN_ISSUES.contains(key)) {
+        } else if (sub == null && !write && (PLAIN_ISSUES.contains(key) || MANY_HITS_KEY.matcher(key).matches())) {
             respond(exchange, 200, ISSUE_ABC_1.replace("\"key\":\"ABC-1\"", "\"key\":\"" + key + "\""));
         } else if (sub == null && !write && "ABC-10".equals(key)) {
             respond(exchange, 200, "<html>" + BODY_MARKER + " login</html>");

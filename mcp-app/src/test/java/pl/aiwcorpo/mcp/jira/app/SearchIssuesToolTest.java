@@ -160,4 +160,29 @@ class SearchIssuesToolTest extends ServerTestSupport {
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
                 .isEqualTo("(text ~ \"login page\") AND project in (\"ABC\") ORDER BY updated DESC");
     }
+
+    @Test
+    void aHiddenHitDoesNotChangeTheAnswerAsToHasMore() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode plain = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits")));
+            JsonNode withHidden = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits one hidden")));
+
+            assertThat(plain.at("/issues")).hasSize(25);
+            assertThat(withHidden.at("/issues")).as("ABC-30 is in a restricted project and is removed").hasSize(25);
+            assertThat(withHidden.at("/hasMore")).as("26 raw hits, 25 visible: same as 25 visible hits")
+                    .isEqualTo(plain.at("/hasMore"));
+            assertThat(withHidden.at("/hasMore").asBoolean()).isFalse();
+            assertThat(withHidden.toString()).doesNotContain("ABC-30");
+        }
+    }
+
+    @Test
+    void moreThan25VisibleHitsSayHasMore() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode found = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits visible extra")));
+
+            assertThat(found.at("/issues")).hasSize(25);
+            assertThat(found.at("/hasMore").asBoolean()).isTrue();
+        }
+    }
 }
