@@ -11,7 +11,7 @@ Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md s
 | Kamień | Zakres | Stan |
 | --- | --- | --- |
 | K1 | beta-7; zapytania ze `StructuredQuery` z list normatywnych (projekt jako zakres, nie warunek; `ORDER BY` z dozwolonych pól); typ poświadczenia `[user-secret]` i odmowa nagłówka spoza zbioru; stały tekst `not_found_or_denied`, grant przed resolverem; manifest jako artefakt budowy | zrobiony (2026-10-29), 147 testów |
-| K2 | README (tabela narzędzi, typ poświadczenia, licznik `mcp_audit_authentication_suppressed_total`, `devstack` i `environment: dev`), SECURITY.md, propozycje CC | w toku |
+| K2 | README (tabela narzędzi, typ poświadczenia, licznik `mcp_audit_authentication_suppressed_total`, `devstack` i `environment: dev`), SECURITY.md (w commicie K1), propozycje CC, sprawdzenie obrazu | zrobiony (2026-10-29) |
 | K3 | obraz `mcp-server-jira:m4-<sha>`, linia `M4: osiągnięty` | |
 
 K1, decyzje i zachowanie:
@@ -36,6 +36,19 @@ K1, decyzje i zachowanie:
   wymaga zmiennej procesu (MIGRATION, "Z beta-3 na beta-4"), więc w repo go nie ma.
 - `JiraWikiTextTest.aCraftedDescriptionIsFilteredQuickly`: próg 200 ms zawodził na obciążonym hoście (load ~17), próg 1000 ms nadal
   wyłapuje wykładniczy nawrót.
+
+## Propozycje CC
+
+- Zakres zapytania z argumentu: kontrakt 4.x dopuszcza w JQL tylko zakres z linku (i z grantów dla konta serwisowego), a
+  `project` z argumentu nie może być ani warunkiem, ani zakresem (`QueryScope` nie pozwala zawęzić do jednego id). Jira
+  stosuje prawa użytkownika, więc zapytanie bez klauzuli projektu przeszukuje wszystkie widoczne projekty, a serwer
+  odfiltrowuje wiersze po fakcie (100 wierszy z Jiry, 25 w wyniku). Propozycja: w `QueryScope`/`StructuredQuery`
+  dodać zawężenie zakresu do podzbioru id już ocenionych polityką (np. `scope.narrowedTo("ABC")`, dopuszczone tylko dla
+  id będących `@ResourceRef` tego wywołania), renderowane jako `project in ("ABC")` w miejscu klauzuli zakresu. Do czasu
+  decyzji wyszukiwanie w jednym projekcie przy dużej liczbie widocznych projektów może zwrócić mniej niż 25 trafień,
+  choć istnieją.
+- Typ zgłoszenia (`issuetype`) jako pole warunku JQL: dziś poza listą `JQL_CONDITION_FIELDS`, więc `jql_filter.type`
+  działa po fakcie na wierszach. Dodanie `issuetype` do listy normatywnej poprawiłoby to samo.
 
 Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`); od rundy 6 BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-beta-3`.
 
