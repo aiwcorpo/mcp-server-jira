@@ -4,6 +4,39 @@ M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_is
 
 M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
 
+## M4: plan kamieni (2026-10-29)
+
+Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md startera, "Z beta-5 na beta-6" i "Z beta-6 na beta-7".
+
+| Kamień | Zakres | Stan |
+| --- | --- | --- |
+| K1 | beta-7; zapytania ze `StructuredQuery` z list normatywnych (projekt jako zakres, nie warunek; `ORDER BY` z dozwolonych pól); typ poświadczenia `[user-secret]` i odmowa nagłówka spoza zbioru; stały tekst `not_found_or_denied`, grant przed resolverem; manifest jako artefakt budowy | zrobiony (2026-10-29), 147 testów |
+| K2 | README (tabela narzędzi, typ poświadczenia, licznik `mcp_audit_authentication_suppressed_total`, `devstack` i `environment: dev`), SECURITY.md, propozycje CC | w toku |
+| K3 | obraz `mcp-server-jira:m4-<sha>`, linia `M4: osiągnięty` | |
+
+K1, decyzje i zachowanie:
+
+- `search_issues`: JQL ma postać `(status = "..." AND assignee = "..." AND text ~ "...") AND project in (...) ORDER BY updated DESC`.
+  Pola warunków: `status`, `assignee`, `text` (podzbiór `JQL_CONDITION_FIELDS`), `ORDER BY`: `updated`. `project` i `issuetype`
+  nie są polami warunków w kontrakcie 4.x, więc wypadły z JQL; projekt z argumentu i `jql_filter.type` serwer stosuje do
+  wierszy (`JiraService.searchIssues`, `IssueSearch.issueType`). Ponieważ zapytanie nie nazywa już projektu, serwer prosi Jirę
+  o 100 wierszy (`SEARCH_FETCH_SIZE`) i oddaje najwyżej 25; bez tego strona 25 wierszy z wielu projektów mogłaby nie zawierać
+  nic z żądanego. Wyniki mogą być uboższe niż przy zapytaniu z `project = "X"`, gdy użytkownik widzi dużo projektów:
+  patrz "Propozycje CC".
+- Typ poświadczenia: w repo nie było właściwości `credential-type`; `accepted-credential-types` to `user-secret` (typ domyślny).
+  `CredentialTypeTest`: `user-oauth`, `token-exchange`, `service-account` -> `internal_error`, nic nie dociera do Jiry.
+  `ServerTestSupport` ustawia w testach `accepted-credential-types=user-secret` (domyślnie `TestGateway` przyjmuje też `user-oauth`),
+  żeby artefakt budowy miał to, co zarejestruje potok.
+- `JiraToolErrors` używa `ToolErrorCode.NOT_FOUND_OR_DENIED_MESSAGE`; `ResourcePolicyTest` sprawdza stały tekst i to, że zapis
+  bez zakresu projektu nie powoduje żadnego żądania do Jiry (resolver nie jest wołany, CC-146). Zachowanie `delete_issue`
+  (DESTRUCTIVE, potwierdzenie kodem robi gateway, odmowa pod innym kluczem) bez zmian; `DeleteIssueToolTest` zielony.
+- Manifest: `ServerTestSupport` ustawia `manifest.output-file=target/mcp-manifest.json`; po `./mvnw verify` plik jest w
+  `mcp-app/target/` (`acceptedTypes: ["user-secret"]`, bez `environment`), `ManifestTest` porównuje go z odpowiedzią serwera.
+  `environment: dev` dodaje starter w profilu `devstack`; serwer nie ma własnego kodu na to, a test kontekstu pod `devstack`
+  wymaga zmiennej procesu (MIGRATION, "Z beta-3 na beta-4"), więc w repo go nie ma.
+- `JiraWikiTextTest.aCraftedDescriptionIsFilteredQuickly`: próg 200 ms zawodził na obciążonym hoście (load ~17), próg 1000 ms nadal
+  wyłapuje wykładniczy nawrót.
+
 Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`); od rundy 6 BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-beta-3`.
 
 ## Runda 3: starter alpha-10 (2026-10-28)

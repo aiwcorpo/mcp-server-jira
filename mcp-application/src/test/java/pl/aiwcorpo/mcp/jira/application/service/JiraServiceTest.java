@@ -32,10 +32,31 @@ class JiraServiceTest {
     void searchKeepsOnlyIssuesOfTheRequestedProject() {
         jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issue("DEF-1", "DEF")));
 
-        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "project = \"ABC\""));
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, "ORDER BY updated DESC"));
 
         assertThat(result.issues()).extracting(JiraIssue::key).containsExactly("ABC-1");
-        assertThat(jira.searches).singleElement().satisfies(s -> assertThat(s.jql()).isEqualTo("project = \"ABC\""));
+        assertThat(jira.searches).singleElement().satisfies(s -> assertThat(s.jql()).isEqualTo("ORDER BY updated DESC"));
+    }
+
+    @Test
+    void searchKeepsOnlyIssuesOfTheRequestedTypeIgnoringCase() {
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issueOfType("ABC-2", "Bug")));
+
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "BUG", ""));
+
+        assertThat(result.issues()).extracting(JiraIssue::key).containsExactly("ABC-2");
+    }
+
+    @Test
+    void searchAsksForMoreRowsThanItReturnsBecauseProjectAndTypeAreAppliedAfterwards() {
+        List<JiraIssue> rows = java.util.stream.IntStream.rangeClosed(1, 40)
+                .mapToObj(n -> issue("ABC-" + n, "ABC")).toList();
+        jira.searchAnswer = new IssueSearchResult(rows);
+
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, ""));
+
+        assertThat(result.issues()).hasSize(JiraService.MAX_SEARCH_RESULTS);
+        assertThat(jira.searchSizes).containsExactly(JiraService.SEARCH_FETCH_SIZE);
     }
 
     @Test
@@ -128,6 +149,10 @@ class JiraServiceTest {
         assertThat(inside).contains("!https://evil.test/p.png!");
     }
 
+    private static JiraIssue issueOfType(String key, String type) {
+        return new JiraIssue(key, "ABC", type, "Open", null, "2026-10-20T12:00:00.000+0000", "Summary of " + key, null, null);
+    }
+
     private static JiraIssue issue(String key, String project) {
         return new JiraIssue(key, project, "Task", "Open", null, "2026-10-20T12:00:00.000+0000",
                 "Summary of " + key, null, null);
@@ -140,6 +165,7 @@ class JiraServiceTest {
         final Set<String> visible = Set.of("ABC-1", "DEF-5");
         final List<String> deleted = new ArrayList<>();
         final List<IssueSearch> searches = new ArrayList<>();
+        final List<Integer> searchSizes = new ArrayList<>();
         final List<String> transitioned = new ArrayList<>();
         final List<String> commented = new ArrayList<>();
         String commentBody;
@@ -159,6 +185,7 @@ class JiraServiceTest {
         @Override
         public IssueSearchResult search(IssueSearch search, int maxResults) {
             searches.add(search);
+            searchSizes.add(maxResults);
             return searchAnswer;
         }
 

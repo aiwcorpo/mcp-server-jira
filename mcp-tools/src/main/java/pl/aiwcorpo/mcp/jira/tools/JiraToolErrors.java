@@ -12,7 +12,8 @@ import pl.aiwcorpo.mcp.platform.error.ToolErrorCode;
 import pl.aiwcorpo.mcp.platform.error.ToolErrorMapping;
 
 /**
- * Domain exceptions of this server as C10 errors with fixed texts (the text of not_found_or_denied is the starter's, so a refusal after the policy cannot be told from one before it); everything else falls through to the
+ * Domain exceptions of this server as C10 errors with fixed texts (the text of not_found_or_denied is the constant of
+ * the starter, so a refusal after the policy cannot be told from one before it); everything else falls through to the
  * starter's defaults. No text here carries a value from the arguments; the only text from Jira's answer is a status name, cut and cleaned.
  */
 @Component
@@ -24,7 +25,7 @@ public class JiraToolErrors implements ToolErrorMapping {
     public Optional<SafeError> map(Throwable ex) {
         if (ex instanceof NotFoundOrDeniedException) {
             return Optional.of(new SafeError(ToolErrorCode.NOT_FOUND_OR_DENIED.code(),
-                    "The resource does not exist or you do not have access to it."));
+                    ToolErrorCode.NOT_FOUND_OR_DENIED_MESSAGE));
         }
         if (ex instanceof TransitionNotAvailableException) {
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(),
@@ -43,7 +44,7 @@ public class JiraToolErrors implements ToolErrorMapping {
         }
         if (ex instanceof RejectedByJiraException rejected) {
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(), switch (rejected.operation()) {
-                case SEARCH -> "Jira does not know one of the values of status, assignee or type.";
+                case SEARCH -> "Jira does not know one of the values of status or assignee.";
                 case TRANSITION -> "Jira refused the transition; it may need fields this tool does not set.";
                 case COMMENT -> "Jira refused the comment body.";
                 case DELETE -> "Jira refused the deletion; the issue may have subtasks.";

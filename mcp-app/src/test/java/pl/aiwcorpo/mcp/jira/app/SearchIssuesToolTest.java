@@ -9,7 +9,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/** {@code search_issues}: the server writes the JQL from bounded fields and keeps the search in one project. */
+/**
+ * {@code search_issues}: the server writes the JQL from the fields the contracts allow (status, assignee, text), and
+ * applies the project and the issue type to the rows, because neither can be a condition of the query.
+ */
 class SearchIssuesToolTest extends ServerTestSupport {
 
     @BeforeEach
@@ -21,7 +24,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
     void searchesOneProjectWithJqlBuiltByTheServer() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult result = call(client, "search_issues", Map.of("project", "ABC",
-                    "jql_filter", Map.of("status", "In Progress", "assignee", "alice", "type", "Bug"),
+                    "jql_filter", Map.of("status", "In Progress", "assignee", "alice"),
                     "text", "login* (page)"));
 
             assertThat(result.isError()).isFalse();
@@ -39,10 +42,26 @@ class SearchIssuesToolTest extends ServerTestSupport {
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::path).first().isEqualTo("/rest/api/2/project/ABC");
         assertThat(BACKEND.searches()).hasSize(1);
         JsonNode search = JSON.readTree(BACKEND.searches().get(0));
-        assertThat(search.at("/jql").asString()).isEqualTo("project = \"ABC\" AND status = \"In Progress\""
-                + " AND assignee = \"alice\" AND issuetype = \"Bug\" AND text ~ \"login page\" ORDER BY updated DESC");
-        assertThat(search.at("/maxResults").asInt()).isEqualTo(25);
+        assertThat(search.at("/jql").asString()).isEqualTo("(status = \"In Progress\" AND assignee = \"alice\""
+                + " AND text ~ \"login page\") ORDER BY updated DESC");
+        assertThat(search.at("/jql").asString()).as("the project is the scope, never a condition")
+                .doesNotContain("project").doesNotContain("issuetype");
+        assertThat(search.at("/maxResults").asInt()).isEqualTo(100);
         assertThat(BACKEND.authorizations()).containsOnly(PAT);
+    }
+
+    @Test
+    void theIssueTypeNarrowsTheRowsAndNotTheQuery() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "search_issues", Map.of("project", "ABC",
+                    "jql_filter", Map.of("type", "bug")));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(json(result).at("/issues")).hasSize(1);
+            assertThat(json(result).at("/issues/0/key").asString()).isEqualTo("ABC-2");
+        }
+        assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
+                .isEqualTo("ORDER BY updated DESC");
     }
 
     @Test
@@ -51,7 +70,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(call(client, "search_issues", Map.of("project", "ABC")).isError()).isFalse();
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
-                .isEqualTo("project = \"ABC\" ORDER BY updated DESC");
+                .isEqualTo("ORDER BY updated DESC");
     }
 
     @Test
@@ -137,6 +156,6 @@ class SearchIssuesToolTest extends ServerTestSupport {
                     .isFalse();
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
-                .contains("text ~ \"login page\"");
+                .isEqualTo("(text ~ \"login page\") ORDER BY updated DESC");
     }
 }

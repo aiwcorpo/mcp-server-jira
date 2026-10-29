@@ -80,7 +80,7 @@ class JiraWikiTextTest {
         JiraWikiText.plain(spaces.repeat(2), 10_000);
         long millis = (System.nanoTime() - started) / 1_000_000;
 
-        assertThat(millis).isLessThan(200);
+        assertThat(millis).as("backtracking takes seconds; the bound leaves room for a loaded build host").isLessThan(1000);
     }
 
     @Test

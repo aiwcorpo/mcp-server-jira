@@ -19,6 +19,11 @@ public class JiraService implements JiraUseCase {
 
     /** One page only; the model narrows the search instead of paging through a project. */
     static final int MAX_SEARCH_RESULTS = 25;
+    /**
+     * Rows asked from Jira before the project and the issue type are applied to them: the query cannot name either, so
+     * a page of {@link #MAX_SEARCH_RESULTS} could hold nothing of the requested project.
+     */
+    static final int SEARCH_FETCH_SIZE = 100;
 
     private final JiraResourcePort jira;
 
@@ -28,14 +33,17 @@ public class JiraService implements JiraUseCase {
 
     /**
      * The project of the search is a {@code @ResourceRef}, so the policy already judged it and Jira showed it to the
-     * caller. The JQL names the project; dropping any other project's issue keeps a mis-built query from leaking
-     * them, and the result filter of the starter then judges every remaining hit.
+     * caller. The query cannot name the project (it is the scope of the query, and a condition on it is not allowed), so
+     * the rows are limited to it here, together with the issue type; the result filter of the starter then judges every
+     * remaining hit.
      */
     @Override
     public IssueSearchResult searchIssues(IssueSearch search) {
-        IssueSearchResult found = jira.search(search, MAX_SEARCH_RESULTS);
+        IssueSearchResult found = jira.search(search, SEARCH_FETCH_SIZE);
         return new IssueSearchResult(found.issues().stream()
                 .filter(issue -> search.projectKey().equals(issue.projectKey()))
+                .filter(issue -> search.issueType() == null || search.issueType().equalsIgnoreCase(issue.type()))
+                .limit(MAX_SEARCH_RESULTS)
                 .toList());
     }
 

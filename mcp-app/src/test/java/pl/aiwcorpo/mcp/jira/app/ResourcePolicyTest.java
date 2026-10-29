@@ -43,6 +43,16 @@ class ResourcePolicyTest extends ServerTestSupport {
     }
 
     @Test
+    void theRefusalCarriesTheOneFixedMessageOfTheStarter() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult missing = call(client, "get_issue", Map.of("issueKey", "ABC-999"));
+
+            assertThat(text(missing)).contains(NOT_FOUND_OR_DENIED)
+                    .contains(pl.aiwcorpo.mcp.platform.error.ToolErrorCode.NOT_FOUND_OR_DENIED_MESSAGE);
+        }
+    }
+
+    @Test
     void aSearchOfARestrictedProjectLooksLikeASearchOfAMissingOne() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult missing = call(client, "search_issues", Map.of("project", "NOPE"));
@@ -74,7 +84,7 @@ class ResourcePolicyTest extends ServerTestSupport {
             assertThat(result.isError()).isTrue();
             assertThat(text(result)).contains(NOT_FOUND_OR_DENIED);
         }
-        assertThat(BACKEND.writes()).isEmpty();
+        assertThat(BACKEND.requests()).as("the grant is judged before the resolver asks Jira (CC-146)").isEmpty();
     }
 
     @Test
@@ -121,7 +131,7 @@ class ResourcePolicyTest extends ServerTestSupport {
             assertThat(text(result)).contains("ABC-1").doesNotContain("DEF-1");
         }
         assertThat(BACKEND.searches()).singleElement().satisfies(body ->
-                assertThat(JSON.readTree(body).at("/jql").asString()).startsWith("project in (\"ABC\") AND project = \"ABC\""));
+                assertThat(JSON.readTree(body).at("/jql").asString()).isEqualTo("project in (\"ABC\") ORDER BY updated DESC"));
     }
 
     @Test

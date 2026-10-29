@@ -20,7 +20,6 @@ import pl.aiwcorpo.mcp.platform.guard.RiskLevel;
 import pl.aiwcorpo.mcp.platform.guard.ToolRisk;
 import pl.aiwcorpo.mcp.platform.guard.ToolTitle;
 import pl.aiwcorpo.mcp.platform.input.ArgumentLimits;
-import pl.aiwcorpo.mcp.platform.resource.QueryScope;
 import pl.aiwcorpo.mcp.platform.resource.ResourceContext;
 import pl.aiwcorpo.mcp.platform.resource.ResourcePolicy;
 import pl.aiwcorpo.mcp.platform.resource.ResourceRef;
@@ -58,8 +57,13 @@ public class JiraTool {
     /** Boolean operators of the same syntax (upper case only); left in, a lone one makes Jira answer 400. */
     static final Pattern TEXT_SEARCH_OPERATOR = Pattern.compile("\\b(?:AND|OR|NOT)\\b");
 
-    /** The fields a search may filter and sort by: the whitelist handed to the query builder of the starter. */
-    static final Set<String> SEARCH_FIELDS = Set.of("project", "status", "assignee", "issuetype", "text", "updated");
+    /**
+     * The fields a search may filter on and sort by: a subset of the normative lists of the contracts (CC-160), handed to
+     * the query builder of the starter. The project is the scope of the query and the issue type is not on the list,
+     * so neither is a condition; both are applied to the rows by the use case.
+     */
+    static final Set<String> SEARCH_FIELDS = Set.of("status", "assignee", "text");
+    static final Set<String> SEARCH_ORDER_FIELDS = Set.of("updated");
 
     public static final int MAX_NAME = 60;
     public static final int MAX_USERNAME = 100;
@@ -113,19 +117,18 @@ public class JiraTool {
             @ArgumentLimits(minLength = 1, maxLength = MAX_TEXT)
             String text) {
         JqlFilter filter = jql_filter == null ? new JqlFilter(null, null, null) : jql_filter;
-        QueryScope scope = policy.queryScope(JiraResourceModel.PROJECT_TYPE);
-        String jql = scope.jql(SEARCH_FIELDS)
-                .where("project", Operator.EQUALS, project)
-                .where("status", Operator.EQUALS,
-                        optional(filter.status(), NAME, "jql_filter.status must be a status name of 1-60 characters"))
-                .where("assignee", Operator.EQUALS,
-                        optional(filter.assignee(), USERNAME, "jql_filter.assignee must be a username of 1-100 characters"))
-                .where("issuetype", Operator.EQUALS,
-                        optional(filter.type(), NAME, "jql_filter.type must be an issue type name of 1-60 characters"))
-                .where("text", Operator.CONTAINS, searchText(text))
+        String status = optional(filter.status(), NAME, "jql_filter.status must be a status name of 1-60 characters");
+        String assignee = optional(filter.assignee(), USERNAME,
+                "jql_filter.assignee must be a username of 1-100 characters");
+        String type = optional(filter.type(), NAME, "jql_filter.type must be an issue type name of 1-60 characters");
+        String words = searchText(text);
+        String jql = policy.queryScope(JiraResourceModel.PROJECT_TYPE).jql(SEARCH_FIELDS, SEARCH_ORDER_FIELDS)
+                .where("status", Operator.EQUALS, status)
+                .where("assignee", Operator.EQUALS, assignee)
+                .where("text", Operator.CONTAINS, words)
                 .orderBy("updated", Direction.DESC)
                 .build();
-        return SearchView.of(project, useCase.searchIssues(new IssueSearch(project, jql)));
+        return SearchView.of(project, useCase.searchIssues(new IssueSearch(project, type, jql)));
     }
 
     @Tool(name = "add_comment", description = "Adds a comment to one Jira issue as the calling user. The text is "

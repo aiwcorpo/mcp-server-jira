@@ -53,6 +53,21 @@ class ProductionConfigurationTest {
     }
 
     @Test
+    void jiraAcceptsTheUserSecretAndNothingElseAndDoesNotSetAnotherCredentialTypeProperty() throws IOException {
+        PropertySource<?> base = new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml")).getFirst();
+        PropertySource<?> dev = new YamlPropertySourceLoader()
+                .load("application-dev.yml", new ClassPathResource("application-dev.yml")).getFirst();
+
+        assertThat(String.valueOf(base.getProperty("aiwcorpo.mcp.platform.manifest.accepted-credential-types")))
+                .isEqualTo("${MCP_ACCEPTED_CREDENTIAL_TYPES:user-secret}");
+        assertThat(String.valueOf(dev.getProperty("aiwcorpo.mcp.platform.manifest.accepted-credential-types")))
+                .isEqualTo("user-secret");
+        assertThat(base.getProperty("aiwcorpo.mcp.platform.credential-type"))
+                .as("the default type is the first accepted one since beta-7").isNull();
+    }
+
+    @Test
     void devIsReachableOnLoopbackOnly() throws IOException {
         Map<String, Object> dev = (Map<String, Object>) new YamlPropertySourceLoader()
                 .load("application-dev.yml", new ClassPathResource("application-dev.yml")).getFirst().getSource();

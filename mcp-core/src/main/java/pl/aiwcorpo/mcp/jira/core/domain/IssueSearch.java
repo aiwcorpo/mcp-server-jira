@@ -5,8 +5,11 @@ package pl.aiwcorpo.mcp.jira.core.domain;
  * filter values with the structured query builder of the starter, which also adds the narrowing of a virtual
  * server link.
  *
- * @param projectKey the one project the search is limited to
+ * @param projectKey the one project the search is limited to; not a condition of the query (the project is the scope
+ *                   of the query, which the contracts fix), so the use case applies it to the rows
+ * @param issueType  the issue type the rows are limited to, {@code null} for any; applied to the rows for the same
+ *                   reason (the type is not a field the contracts allow in a condition)
  * @param jql        the complete query, built by the server
  */
-public record IssueSearch(String projectKey, String jql) {
+public record IssueSearch(String projectKey, String issueType, String jql) {
 }
