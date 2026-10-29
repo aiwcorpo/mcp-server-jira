@@ -1,6 +1,6 @@
 # mcp-jira: serwer MCP platformy
 
-Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-beta-7 (Java 25, Spring Boot
+Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-beta-8 (Java 25, Spring Boot
 4.1.0, Spring AI 2.0.0, kontrakty `mcp-contracts` 4.1.0 przez BOM). Stoi wyłącznie za gateway'em platformy: przyjmuje
 ruch tylko po mTLS z wewnętrznym JWT gateway'a (C2), a do systemu docelowego woła z poświadczeniem
 użytkownika, które gateway dołącza do każdego żądania (C3). Bez poprawnego JWT odpowiada 401, nie ma trybu
@@ -57,11 +57,10 @@ Zasady wyników i zapytań:
   układu z kontraktów 4.1.0 (`query-rendering`, CC-160): `(warunki) AND project in (...) ORDER BY updated DESC`.
   Warunki to najwyżej `status = "..."`, `assignee = "..."` i `text ~ "..."` (pola i operatory z list normatywnych;
   wartość w cudzysłowie, z escapowaniem, znak sterujący odrzucony), łączone `AND` w jednym nawiasie. Zakres
-  (`project in (...)`) pochodzi z linku wirtualnego serwera i jest dopisywany po warunkach; bez linku zapytanie nie
-  ma klauzuli projektu. `project` i `issuetype` nie są polami warunków w kontrakcie, więc nie ma ich w JQL:
-  projekt z argumentu i typ z `jql_filter.type` serwer stosuje do wierszy po odpowiedzi Jiry (porównanie klucza
-  projektu z odpowiedzi, typ bez rozróżniania wielkości liter). Dlatego prosi Jirę o 100 wierszy, a oddaje
-  najwyżej 25: w tym samym zapytaniu mogą być zgłoszenia innych widocznych projektów. Jedyne `ORDER BY` to
+  `project in ("<klucz>")` to projekt z argumentu zawężony do linku wirtualnego serwera (`QueryScope.narrowedTo`),
+  dopisany po warunkach. `issuetype` nie jest polem warunków w kontrakcie, więc `jql_filter.type` serwer stosuje do
+  wierszy po odpowiedzi Jiry (typ bez rozróżniania wielkości liter); dlatego prosi Jirę o 100 wierszy, a oddaje
+  najwyżej 25. Klucz projektu z odpowiedzi jest dodatkowo porównywany z argumentem. Jedyne `ORDER BY` to
   `updated DESC`. Wartości są wcześniej sprawdzane wzorcem (nazwa: litery, cyfry, spacja, `_./()&'-`;
   użytkownik: `[A-Za-z0-9][A-Za-z0-9._@+-]{0,99}`), a w `text` znaki składni wyszukiwania pełnotekstowego Jiry są
   zamieniane na spacje. Surowego JQL nie ma w żadnym argumencie.
@@ -70,8 +69,8 @@ Zasady wyników i zapytań:
   zasobie takim, jakim opisuje go Jira: zgłoszenie przeniesione do projektu z kategorią `Restricted`, nieistniejące
   i niewidoczne dają to samo `not_found_or_denied`; brak grupy narzędzia to `access_denied`. Resolver zgłoszenia
   pobiera zgłoszenie i kategorię jego projektu (`GET project/{key}`); zgłoszenie bez projektu w odpowiedzi to błąd
-  odpowiedzi, nie zgłoszenie bez klasyfikacji. Poza linkiem projekt spoza zakresu daje `access_denied` (tak samo
-  dla istniejącego i nie).
+  odpowiedzi, nie zgłoszenie bez klasyfikacji. Projekt albo zgłoszenie spoza linku daje `not_found_or_denied` (tak samo
+  dla istniejącego i nie; audyt: `link_scope`).
 - `ResultFilter`: `key` każdego trafienia `search_issues` jest `@ResourceRef`, więc starter rozwiązuje trafienia
   (jedno `fetchAll`, kategoria każdego projektu raz na listę) i usuwa to, czego polityka nie dopuszcza albo czego
   nie da się odczytać. Dlatego wynik nie ma `total` ani `returned`.

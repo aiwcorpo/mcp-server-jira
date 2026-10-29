@@ -1,5 +1,6 @@
 package pl.aiwcorpo.mcp.jira.tools;
 
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.ai.tool.annotation.Tool;
@@ -7,6 +8,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
 import pl.aiwcorpo.mcp.jira.core.port.in.JiraUseCase;
@@ -20,6 +22,7 @@ import pl.aiwcorpo.mcp.platform.guard.RiskLevel;
 import pl.aiwcorpo.mcp.platform.guard.ToolRisk;
 import pl.aiwcorpo.mcp.platform.guard.ToolTitle;
 import pl.aiwcorpo.mcp.platform.input.ArgumentLimits;
+import pl.aiwcorpo.mcp.platform.resource.QueryScope;
 import pl.aiwcorpo.mcp.platform.resource.ResourceContext;
 import pl.aiwcorpo.mcp.platform.resource.ResourcePolicy;
 import pl.aiwcorpo.mcp.platform.resource.ResourceRef;
@@ -59,8 +62,8 @@ public class JiraTool {
 
     /**
      * The fields a search may filter on and sort by: a subset of the normative lists of the contracts (CC-160), handed to
-     * the query builder of the starter. The project is the scope of the query and the issue type is not on the list,
-     * so neither is a condition; both are applied to the rows by the use case.
+     * the query builder of the starter. The project is the scope of the query ({@code narrowedTo}) and the issue type
+     * is not on the list, so neither is a condition; the issue type is applied to the rows by the use case.
      */
     static final Set<String> SEARCH_FIELDS = Set.of("status", "assignee", "text");
     static final Set<String> SEARCH_ORDER_FIELDS = Set.of("updated");
@@ -122,7 +125,11 @@ public class JiraTool {
                 "jql_filter.assignee must be a username of 1-100 characters");
         String type = optional(filter.type(), NAME, "jql_filter.type must be an issue type name of 1-60 characters");
         String words = searchText(text);
-        String jql = policy.queryScope(JiraResourceModel.PROJECT_TYPE).jql(SEARCH_FIELDS, SEARCH_ORDER_FIELDS)
+        QueryScope scope = policy.queryScope(JiraResourceModel.PROJECT_TYPE).narrowedTo(List.of(project));
+        if (scope.linkIds().filter(Set::isEmpty).isPresent()) {
+            return SearchView.of(project, new IssueSearchResult(List.of()));
+        }
+        String jql = scope.jql(SEARCH_FIELDS, SEARCH_ORDER_FIELDS)
                 .where("status", Operator.EQUALS, status)
                 .where("assignee", Operator.EQUALS, assignee)
                 .where("text", Operator.CONTAINS, words)

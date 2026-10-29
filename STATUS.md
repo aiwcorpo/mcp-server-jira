@@ -4,7 +4,7 @@ M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_is
 
 M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
 
-M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-7 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt jako zakres, `ORDER BY updated`), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt budowy `mcp-app/target/mcp-manifest.json`, licznik `mcp_audit_authentication_suppressed_total` w README, 147 testów na stubie Jiry; obraz `mcp-server-jira:m4-f65f5fd` (zbudowany z f65f5fd, ten commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
+M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-8 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt z argumentu jako zakres przez `QueryScope.narrowedTo`, `ORDER BY updated`; typ zgłoszenia filtrem po odpowiedzi), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt budowy `mcp-app/target/mcp-manifest.json`, licznik `mcp_audit_authentication_suppressed_total` w README, 147 testów na stubie Jiry; obraz `mcp-server-jira:m4-f65f5fd` (zbudowany z f65f5fd, ten commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
 
 ## M4: plan kamieni (2026-10-29)
 
@@ -41,16 +41,17 @@ K1, decyzje i zachowanie:
 
 ## Propozycje CC
 
-- Zakres zapytania z argumentu: kontrakt 4.x dopuszcza w JQL tylko zakres z linku (i z grantów dla konta serwisowego), a
-  `project` z argumentu nie może być ani warunkiem, ani zakresem (`QueryScope` nie pozwala zawęzić do jednego id). Jira
-  stosuje prawa użytkownika, więc zapytanie bez klauzuli projektu przeszukuje wszystkie widoczne projekty, a serwer
-  odfiltrowuje wiersze po fakcie (100 wierszy z Jiry, 25 w wyniku). Propozycja: w `QueryScope`/`StructuredQuery`
-  dodać zawężenie zakresu do podzbioru id już ocenionych polityką (np. `scope.narrowedTo("ABC")`, dopuszczone tylko dla
-  id będących `@ResourceRef` tego wywołania), renderowane jako `project in ("ABC")` w miejscu klauzuli zakresu. Do czasu
-  decyzji wyszukiwanie w jednym projekcie przy dużej liczbie widocznych projektów może zwrócić mniej niż 25 trafień,
-  choć istnieją.
 - Typ zgłoszenia (`issuetype`) jako pole warunku JQL: dziś poza listą `JQL_CONDITION_FIELDS`, więc `jql_filter.type`
-  działa po fakcie na wierszach. Dodanie `issuetype` do listy normatywnej poprawiłoby to samo.
+  działa po fakcie na wierszach (100 wierszy z Jiry, 25 w wyniku). Dodanie `issuetype` do listy normatywnej to usunęłoby.
+  (Propozycja zawężenia zakresu do argumentu z beta-7 jest zrealizowana przez `narrowedTo` w beta-8.)
+
+## Beta-8 (2026-10-29)
+
+Podbicie na 3.0.0-beta-8. `search_issues` zawęża zakres przez `scope.narrowedTo(List.of(project))`: JQL ma `project in ("<projekt>")`
+po warunkach (przecięcie z linkiem; puste przecięcie daje pusty wynik bez wywołania Jiry). Porównanie projektu w
+`JiraService` zostaje jako druga warstwa; `SEARCH_FETCH_SIZE` 100 -> 25 zostaje, bo typ zgłoszenia nadal jest filtrem po odpowiedzi.
+Żaden test nie oczekiwał `access_denied` dla zasobu spoza linku (spoza linku już dawał `not_found_or_denied` w testach);
+pozostałe `access_denied` to brak grupy narzędzia.
 
 Start: `mcp-server-template` 7f65f8f (`./new-server.sh jira`); od rundy 6 BOM `pl.aiwcorpo.mcp:mcp-platform-bom:3.0.0-beta-3`.
 

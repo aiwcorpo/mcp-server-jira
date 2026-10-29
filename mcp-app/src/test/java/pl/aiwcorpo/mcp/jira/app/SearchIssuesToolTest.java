@@ -11,7 +11,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * {@code search_issues}: the server writes the JQL from the fields the contracts allow (status, assignee, text), and
- * applies the project and the issue type to the rows, because neither can be a condition of the query.
+ * names the project as the scope of the query, and applies the issue type to the rows, because it is not a field the query may use.
  */
 class SearchIssuesToolTest extends ServerTestSupport {
 
@@ -43,9 +43,9 @@ class SearchIssuesToolTest extends ServerTestSupport {
         assertThat(BACKEND.searches()).hasSize(1);
         JsonNode search = JSON.readTree(BACKEND.searches().get(0));
         assertThat(search.at("/jql").asString()).isEqualTo("(status = \"In Progress\" AND assignee = \"alice\""
-                + " AND text ~ \"login page\") ORDER BY updated DESC");
-        assertThat(search.at("/jql").asString()).as("the project is the scope, never a condition")
-                .doesNotContain("project").doesNotContain("issuetype");
+                + " AND text ~ \"login page\") AND project in (\"ABC\") ORDER BY updated DESC");
+        assertThat(search.at("/jql").asString()).as("the project is the scope clause, the type is not in the query")
+                .doesNotContain("issuetype");
         assertThat(search.at("/maxResults").asInt()).isEqualTo(100);
         assertThat(BACKEND.authorizations()).containsOnly(PAT);
     }
@@ -61,7 +61,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(json(result).at("/issues/0/key").asString()).isEqualTo("ABC-2");
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
-                .isEqualTo("ORDER BY updated DESC");
+                .isEqualTo("project in (\"ABC\") ORDER BY updated DESC");
     }
 
     @Test
@@ -70,7 +70,7 @@ class SearchIssuesToolTest extends ServerTestSupport {
             assertThat(call(client, "search_issues", Map.of("project", "ABC")).isError()).isFalse();
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
-                .isEqualTo("ORDER BY updated DESC");
+                .isEqualTo("project in (\"ABC\") ORDER BY updated DESC");
     }
 
     @Test
@@ -156,6 +156,6 @@ class SearchIssuesToolTest extends ServerTestSupport {
                     .isFalse();
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
-                .isEqualTo("(text ~ \"login page\") ORDER BY updated DESC");
+                .isEqualTo("(text ~ \"login page\") AND project in (\"ABC\") ORDER BY updated DESC");
     }
 }
