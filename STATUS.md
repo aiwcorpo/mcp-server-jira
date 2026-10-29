@@ -4,6 +4,8 @@ M1: osiągnięty (2026-10-27) - cztery narzędzia Jiry (`search_issues`, `get_is
 
 M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTitle`, `@ResourceRef` + resolvery `Jira::Issue` i `Jira::Project` (kategoria projektu z Jiry), wyszukiwanie przez `StructuredQuery`/`QueryScope`, `ResultFilter`, manifest C6 (`GET /mcp-manifest`, 5 narzędzi), nowe `delete_issue` (`DESTRUCTIVE`, akcja `delete`, `mcp-jira-destructive`), 135 testów na stubie Jiry (w tym `delete_issue`: bez grupy destructive `access_denied`, restricted jak nieistniejące, 401 `credential_required`).
 
+M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-7 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt jako zakres, `ORDER BY updated`), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt budowy `mcp-app/target/mcp-manifest.json`, licznik `mcp_audit_authentication_suppressed_total` w README, 147 testów na stubie Jiry; obraz `mcp-server-jira:m4-f65f5fd` (zbudowany z f65f5fd, ten commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
+
 ## M4: plan kamieni (2026-10-29)
 
 Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md startera, "Z beta-5 na beta-6" i "Z beta-6 na beta-7".
@@ -12,7 +14,7 @@ Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md s
 | --- | --- | --- |
 | K1 | beta-7; zapytania ze `StructuredQuery` z list normatywnych (projekt jako zakres, nie warunek; `ORDER BY` z dozwolonych pól); typ poświadczenia `[user-secret]` i odmowa nagłówka spoza zbioru; stały tekst `not_found_or_denied`, grant przed resolverem; manifest jako artefakt budowy | zrobiony (2026-10-29), 147 testów |
 | K2 | README (tabela narzędzi, typ poświadczenia, licznik `mcp_audit_authentication_suppressed_total`, `devstack` i `environment: dev`), SECURITY.md (w commicie K1), propozycje CC, sprawdzenie obrazu | zrobiony (2026-10-29) |
-| K3 | obraz `mcp-server-jira:m4-<sha>`, linia `M4: osiągnięty` | |
+| K3 | obraz `mcp-server-jira:m4-<sha>`, linia `M4: osiągnięty` | zrobiony (2026-10-29) |
 
 K1, decyzje i zachowanie:
 
