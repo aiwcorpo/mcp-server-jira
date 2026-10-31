@@ -33,11 +33,25 @@ class ManifestArtifactIT extends ServerTestSupport {
                 HttpResponse.BodyHandlers.ofString());
         JsonNode artifact = JSON.readTree(Files.readString(MANIFEST_FILE));
 
-        assertThat(withoutVersionAndAddress(artifact)).isEqualTo(withoutVersionAndAddress(JSON.readTree(served.body())));
+        JsonNode servedManifest = JSON.readTree(served.body());
+
+        assertThat(withoutVersionAndAddress(artifact)).isEqualTo(withoutVersionAndAddress(servedManifest));
+        // Same credential types, so the definitionHash values of the file and of the server are comparable too.
+        assertThat(artifact.at("/credential/acceptedTypes")).isEqualTo(servedManifest.at("/credential/acceptedTypes"));
+        assertThat(artifact.get("tools")).as("definitions and definitionHash").isEqualTo(servedManifest.get("tools"));
         assertThat(artifact.has("environment")).as("only the devstack profile publishes environment=dev (CC-138)").isFalse();
         assertThat(artifact.get("version").asString()).as("the version of the pom, not the 1.0.0 of the tests")
-                .isNotEqualTo("1.0.0").isNotBlank();
+                .isNotEqualTo("1.0.0").isEqualTo(projectVersion());
         assertThat(artifact.at("/credential/acceptedTypes").toString()).isEqualTo("[\"user-secret\"]");
+    }
+
+    /** The version in the parent pom (the failsafe working directory is mcp-app). */
+    private static String projectVersion() throws java.io.IOException {
+        String pom = Files.readString(java.nio.file.Path.of("..", "pom.xml"));
+        java.util.regex.Matcher version = java.util.regex.Pattern
+                .compile("<artifactId>mcp-jira-parent</artifactId>\\s*<version>([^<]+)</version>").matcher(pom);
+        assertThat(version.find()).as("version in the parent pom").isTrue();
+        return version.group(1);
     }
 
     private static JsonNode withoutVersionAndAddress(JsonNode manifest) {

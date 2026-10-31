@@ -7,9 +7,14 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ClassPathResource;
 import pl.aiwcorpo.mcp.platform.test.TestGateway;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -18,7 +23,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Writes the manifest the pipeline registers at the gateway (CC-133, CC-140) to the path given as the argument. It runs
  * in the package phase of every build, also with {@code -DskipTests}, and starts the real application with the
  * configuration of {@code application.yml}: the version is the one of the pom, the address and the credential types
- * are those of the configuration (or of {@code MCP_INTERNAL_URL} and {@code MCP_ACCEPTED_CREDENTIAL_TYPES} when set).
+ * are those of {@code application.yml} (or of {@code MCP_INTERNAL_URL} and {@code MCP_ACCEPTED_CREDENTIAL_TYPES} when set), not of the dev profile.
  * Only what the server cannot start without is stood in for: the gateway keys and the policy bundle (TestGateway) and
  * the Jira backend. The file is then compared with what the running server serves, so a build whose artifact differs
  * from the published manifest fails.
@@ -50,9 +55,7 @@ public final class ManifestExport {
             properties.put("aiwcorpo.mcp.platform.manifest.output-file", file.toString());
             properties.put("jira.backend.base-url", backend.baseUrl());
             properties.put("server.port", "0");
-            fromEnvironment(properties, "MCP_INTERNAL_URL", "aiwcorpo.mcp.platform.manifest.internal-url");
-            fromEnvironment(properties, "MCP_ACCEPTED_CREDENTIAL_TYPES",
-                    "aiwcorpo.mcp.platform.manifest.accepted-credential-types");
+            productionManifestSettings(properties);
             try (ConfigurableApplicationContext context = new SpringApplicationBuilder(McpServerApplication.class)
                     .profiles("dev").run(arguments(properties))) {
                 String port = context.getEnvironment().getProperty("local.server.port");
@@ -76,11 +79,24 @@ public final class ManifestExport {
         return properties.entrySet().stream().map(e -> "--" + e.getKey() + "=" + e.getValue()).toArray(String[]::new);
     }
 
-    private static void fromEnvironment(Map<String, Object> properties, String variable, String property) {
-        String value = System.getenv(variable);
-        if (value != null && !value.isBlank()) {
-            properties.put(property, value);
+    /**
+     * The address and the credential types of the manifest come from {@code application.yml} (with MCP_INTERNAL_URL and
+     * MCP_ACCEPTED_CREDENTIAL_TYPES resolved as in production), never from {@code application-dev.yml}, whose values would
+     * otherwise end up in the artifact the pipeline registers. A blank address gets the same informative default as
+     * the other servers' ManifestExport.
+     */
+    private static void productionManifestSettings(Map<String, Object> properties) throws java.io.IOException {
+        StandardEnvironment environment = new StandardEnvironment();
+        List<PropertySource<?>> documents = new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml"));
+        environment.getPropertySources().addLast(documents.getFirst());
+        String url = environment.getProperty("aiwcorpo.mcp.platform.manifest.internal-url");
+        if (url == null || url.isBlank()) {
+            url = "https://" + ServerTestSupport.SERVER_ID + ".internal:8443/mcp";
         }
+        properties.put("aiwcorpo.mcp.platform.manifest.internal-url", url);
+        properties.put("aiwcorpo.mcp.platform.manifest.accepted-credential-types",
+                environment.getRequiredProperty("aiwcorpo.mcp.platform.manifest.accepted-credential-types"));
     }
 
     private static String[] flatten(Map<String, String> headers) {
