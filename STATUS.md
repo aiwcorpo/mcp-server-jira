@@ -401,3 +401,7 @@ Podbicie BOM beta-2 -> beta-3 (MIGRATION "Z beta-2 na beta-3"). Wszystkie narzę
 - CI: `ci/run.sh` (verify, hygiene, image; 0 testów i nieznany krok to błąd), `.gitlab-ci.yml`, `Jenkinsfile`,
   `.github/workflows/ci.yml`, `.ci/settings*.xml`, `Makefile` skopiowane z szablonu 444f826. MR bez sekretów i bez gniazda Dockera.
 - A10-M1: `DevProfileLoopbackTest` używa `DevProfileGuardAssertions` (reguła niezależna od hosta), bramki bezpieczeństwa nietknięte.
+
+Poprawki CI po przeglądzie szablonu 3df797e (2026-10-31): hygiene fail-closed, liczniki testów per moduł (CI_TEST_MODULES, CI_APP_MIN_TESTS),
+tag obrazu `mcp-server-jira:m5-<sha7>`, `ManifestTest` porównuje hash (gdy listy typów równe) i wersję z pom, test `vs`/`vsc` ma kontrolę pozytywną (powód w logu: invalid_claims). ManifestExport bierze internalUrl i acceptedTypes z application.yml (nie z application-dev.yml); ManifestArtifactIT porównuje hash i wersję z pom.
+- Dowód: `ci/run.sh verify` 149:efd0df4 przypadków uruchomionych, `ci/run.sh bogus` daje 2, obraz `mcp-server-jira:m5-efd0df4` zbudowany z `ci/run.sh image`.
