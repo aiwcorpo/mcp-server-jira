@@ -130,9 +130,6 @@ public class JiraTool {
         String type = optional(filter.type(), NAME, "jql_filter.type must be an issue type name of 1-60 characters");
         String words = searchText(text);
         QueryScope scope = policy.queryScope(JiraResourceModel.PROJECT_TYPE).narrowedTo(List.of(project));
-        if (scope.linkIds().filter(Set::isEmpty).isPresent()) {
-            return SearchView.of(project, new IssueSearchResult(List.of()));
-        }
         String jql = scope.jql(SEARCH_FIELDS, SEARCH_ORDER_FIELDS)
                 .where("status", Operator.EQUALS, status)
                 .where("assignee", Operator.EQUALS, assignee)

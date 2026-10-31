@@ -99,42 +99,6 @@ class ResourcePolicyTest extends ServerTestSupport {
     }
 
     @Test
-    void aLinkNarrowedToOneProjectHidesTheIssuesAndTheSearchOfAnother() {
-        try (McpSyncClient client = clientWithToken(user -> {
-            reader(user);
-            user.virtualServer("abc-only", Map.of("jiraProjects", List.of("ABC")));
-        }, PAT)) {
-            McpSchema.CallToolResult inside = call(client, "get_issue", Map.of("issueKey", "ABC-1"));
-            McpSchema.CallToolResult outside = call(client, "get_issue", Map.of("issueKey", "DEF-5"));
-            McpSchema.CallToolResult searchOutside = call(client, "search_issues", Map.of("project", "DEF"));
-            McpSchema.CallToolResult missing = call(client, "get_issue", Map.of("issueKey", "ABC-999"));
-            McpSchema.CallToolResult searchMissing = call(client, "search_issues", Map.of("project", "NOPE"));
-
-            assertThat(inside.isError()).isFalse();
-            assertThat(text(outside)).contains(NOT_FOUND_OR_DENIED).isEqualTo(text(missing));
-            assertThat(searchOutside.isError()).isTrue();
-            assertThat(text(searchOutside)).as("outside the link, existing or not, the answer is the same")
-                    .isEqualTo(text(searchMissing));
-        }
-        assertThat(BACKEND.searches()).as("a search outside the link never reaches Jira").isEmpty();
-    }
-
-    @Test
-    void aSearchInsideTheLinkCarriesItInTheQueryAndReturnsOnlyIssuesInsideIt() {
-        try (McpSyncClient client = clientWithToken(user -> {
-            reader(user);
-            user.virtualServer("abc-only", Map.of("jiraProjects", List.of("ABC")));
-        }, PAT)) {
-            McpSchema.CallToolResult result = call(client, "search_issues", Map.of("project", "ABC"));
-
-            assertThat(result.isError()).isFalse();
-            assertThat(text(result)).contains("ABC-1").doesNotContain("DEF-1");
-        }
-        assertThat(BACKEND.searches()).singleElement().satisfies(body ->
-                assertThat(JSON.readTree(body).at("/jql").asString()).isEqualTo("project in (\"ABC\") ORDER BY updated DESC"));
-    }
-
-    @Test
     void aJiraThatFailsIsNotADenial() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-500"));

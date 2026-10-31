@@ -14,6 +14,9 @@
     </parent>
     <artifactId>mcp-app</artifactId>
     <name>mcp-jira :: App (bootstrap)</name>
+    <properties>
+        <manifest.export.skip>false</manifest.export.skip>
+    </properties>
     <dependencies>
         <dependency><groupId>${project.groupId}</groupId><artifactId>mcp-tools</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>${project.groupId}</groupId><artifactId>mcp-integration</artifactId><version>${project.version}</version></dependency>
@@ -51,6 +54,7 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
+                            <skip>${manifest.export.skip}</skip>
                             <executable>${java.home}/bin/java</executable>
                             <classpathScope>test</classpathScope>
                             <arguments>

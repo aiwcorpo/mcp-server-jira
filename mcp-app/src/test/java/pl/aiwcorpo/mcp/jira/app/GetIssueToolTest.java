@@ -88,17 +88,6 @@ class GetIssueToolTest extends ServerTestSupport {
     }
 
     @Test
-    void acceptsTheVirtualServerClaimsOfACallThroughALink() {
-        try (McpSyncClient client = clientWithToken(
-                user -> { reader(user); user.virtualServer("team-delivery", Map.of()); }, PAT)) {
-            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-1"));
-
-            assertThat(result.isError()).isFalse();
-            assertThat(json(result).at("/key").asString()).isEqualTo("ABC-1");
-        }
-    }
-
-    @Test
     void aMovedIssueIsReportedUnderItsNewKeyAndProject() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-3"));

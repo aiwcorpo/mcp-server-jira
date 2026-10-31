@@ -98,7 +98,7 @@ abstract class ServerTestSupport {
                 .mfaAgeSeconds(60);
     }
 
-    /** As {@link #clientWithCredential}, with the caller's token shaped by {@code user} (claims of a link call). */
+    /** As {@link #clientWithCredential}, with the caller's token shaped by {@code user} (for example another group set). */
     McpSyncClient clientWithToken(Consumer<TestGateway.Token> user, String credential) {
         HttpClientStreamableHttpTransport transport = HttpClientStreamableHttpTransport.builder(baseUrl())
                 .endpoint(ENDPOINT)

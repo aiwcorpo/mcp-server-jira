@@ -6,6 +6,8 @@ M3: osiągnięty (2026-10-28) - starter 3.0.0-beta-3 (kontrakty 3.1.0): `@ToolTi
 
 M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-9 (kontrakty 4.1.0): typ poświadczenia `[user-secret]` z odmową nagłówka spoza zbioru (`CredentialTypeTest`), JQL ze `StructuredQuery` z pól normatywnych (`status`, `assignee`, `text`; projekt z argumentu jako zakres przez `QueryScope.narrowedTo`, `ORDER BY updated`; typ zgłoszenia filtrem po odpowiedzi), stały tekst `not_found_or_denied` i grant przed resolverem, manifest jako artefakt fazy `package` `mcp-app/target/mcp-manifest.json` (także z `-DskipTests`, z konfiguracji produkcyjnej), licznik `mcp_audit_authentication_suppressed_total` w README, 153 testów (w tym 2 integracyjne po package) na stubie Jiry; obraz `mcp-server-jira:m4-7f3f951` (beta-9, zbudowany z 7f3f951; następny commit zmienia tylko STATUS.md). Poza zakresem tego repo: rejestracja manifestu (ws-01/ws-05), wdrożenie obrazu (ws-01).
 
+M5: kod gotowy (2026-10-31) - starter 3.0.0-beta-10 (kontrakty 5.1.0): bez wirtualnego serwera, zawężenia linkiem i `link_scope`; token z claimem `vs` albo `vsc` -> 401 (`GatewayOnlyAccessTest`), 149 testów przez `ci/run.sh verify`; CI przez `ci/run.sh` z nakładkami GitLab, Jenkins i GitHub; manifest `mcp-app/target/mcp-manifest.json` z `manifest.export.skip=false`. Bez deklaracji osiągnięcia do czasu dowodu z runnera.
+
 ## M4: plan kamieni (2026-10-29)
 
 Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md startera, "Z beta-5 na beta-6" i "Z beta-6 na beta-7".
@@ -382,3 +384,20 @@ Podbicie BOM beta-2 -> beta-3 (MIGRATION "Z beta-2 na beta-3"). Wszystkie narzę
   `SearchIssuesToolTest.aHiddenHitDoesNotChangeTheAnswerAsToHasMore`, `moreThan25VisibleHitsSayHasMore`. Reszta: flaga przy
   filtrze typu zależy od surowej liczby wierszy (100), więc dokładnie na tej granicy ukryty wiersz mógłby ją przestawić;
   pominięte jako nieistotne informacyjnie.
+
+## M5 (2026-10-31)
+
+- Starter 3.0.0-beta-10, kontrakty 5.1.0 przez BOM; wersje w README poprawione.
+- Usunięte: testy zawężenia linkiem (`ResourcePolicyTest`: dwa testy z `virtualServer("abc-only", ...)`),
+  `GetIssueToolTest.acceptsTheVirtualServerClaimsOfACallThroughALink` (zastąpiony przez
+  `GatewayOnlyAccessTest.aTokenWithTheClaimsOfTheRemovedVirtualServersIsRejected`: 401 dla `vs` i `vsc`, nic nie dociera do Jiry),
+  martwa gałąź `scope.linkIds()` w `JiraTool.searchIssues`. Test dokładnego JQL (`SearchIssuesToolTest`) zostaje.
+  Zakres nie poszerzony: projekt z argumentu to nadal `@ResourceRef` i `QueryScope.narrowedTo`, trafienia przechodzą przez `ResultFilter`.
+- Audyt: serwer nie ma pola `virtualServer` ani powodu `link_scope`; w repo nie było alertów ani reguł nad `link_scope`
+  (README :73 poprawiony, SECURITY.md bez linku).
+- Manifest: `exec-maven-plugin` w fazie `package` z `manifest.export.skip=false` w `mcp-app/pom.xml`; implementacja
+  `ManifestExport` (z katalogu testów, start aplikacji z `application.yml`) zostaje z M4, inna niż w szablonie
+  (generator bez startu serwera): obie zapisują ten sam plik, ta ma dodatkowo porównanie z `GET /mcp-manifest`.
+- CI: `ci/run.sh` (verify, hygiene, image; 0 testów i nieznany krok to błąd), `.gitlab-ci.yml`, `Jenkinsfile`,
+  `.github/workflows/ci.yml`, `.ci/settings*.xml`, `Makefile` skopiowane z szablonu 444f826. MR bez sekretów i bez gniazda Dockera.
+- A10-M1: `DevProfileLoopbackTest` używa `DevProfileGuardAssertions` (reguła niezależna od hosta), bramki bezpieczeństwa nietknięte.

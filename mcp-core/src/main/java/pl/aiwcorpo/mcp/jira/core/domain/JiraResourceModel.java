@@ -2,7 +2,7 @@ package pl.aiwcorpo.mcp.jira.core.domain;
 
 /**
  * How this server's records map to the resource types of the policy (C7): the issue is the resource of the tools,
- * the project is its container and the scope a virtual server link narrows.
+ * the project is its container and the scope a search is narrowed to.
  */
 public final class JiraResourceModel {
 

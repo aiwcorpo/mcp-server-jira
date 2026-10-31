@@ -1,7 +1,7 @@
 # mcp-jira: serwer MCP platformy
 
-Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-beta-9 (Java 25, Spring Boot
-4.1.0, Spring AI 2.0.0, kontrakty `mcp-contracts` 4.1.0 przez BOM). Stoi wyłącznie za gateway'em platformy: przyjmuje
+Serwer MCP dla systemu `jira`, zbudowany na `mcp-platform-starter` 3.0.0-beta-10 (Java 25, Spring Boot
+4.1.0, Spring AI 2.0.0, kontrakty `mcp-contracts` 5.1.0 przez BOM). Stoi wyłącznie za gateway'em platformy: przyjmuje
 ruch tylko po mTLS z wewnętrznym JWT gateway'a (C2), a do systemu docelowego woła z poświadczeniem
 użytkownika, które gateway dołącza do każdego żądania (C3). Bez poprawnego JWT odpowiada 401, nie ma trybu
 anonimowego.
@@ -14,7 +14,7 @@ który dokłada starter.
 
 ```bash
 export JAVA_HOME=/opt/homebrew/Cellar/openjdk@25/25.0.4.1/libexec/openjdk.jdk/Contents/Home
-./mvnw verify                 # build i 135 testy (TestGateway + StubBackend Jiry); jar: mcp-app/target/mcp-jira.jar
+./mvnw verify                 # build i 149 testów (TestGateway + StubBackend Jiry); jar: mcp-app/target/mcp-jira.jar
 ```
 
 Testy nie potrzebują Dockera ani środowiska `mcp-platform-dev`: `TestGateway` z `mcp-platform-test` wystawia
@@ -54,11 +54,10 @@ Jiry).
 Zasady wyników i zapytań:
 
 - JQL pisze tylko serwer, ze `StructuredQuery` startera (`policy.queryScope("Jira::Project").jql(...)`), według
-  układu z kontraktów 4.1.0 (`query-rendering`, CC-160): `(warunki) AND project in (...) ORDER BY updated DESC`.
+  układu z kontraktów 5.1.0 (`query-rendering`, CC-160): `(warunki) AND project in (...) ORDER BY updated DESC`.
   Warunki to najwyżej `status = "..."`, `assignee = "..."` i `text ~ "..."` (pola i operatory z list normatywnych;
   wartość w cudzysłowie, z escapowaniem, znak sterujący odrzucony), łączone `AND` w jednym nawiasie. Zakres
-  `project in ("<klucz>")` to projekt z argumentu zawężony do linku wirtualnego serwera (`QueryScope.narrowedTo`),
-  dopisany po warunkach. `issuetype` nie jest polem warunków w kontrakcie, więc `jql_filter.type` serwer stosuje do
+  `project in ("<klucz>")` to projekt z argumentu (`QueryScope.narrowedTo`), dopisany po warunkach. `issuetype` nie jest polem warunków w kontrakcie, więc `jql_filter.type` serwer stosuje do
   wierszy po odpowiedzi Jiry (typ bez rozróżniania wielkości liter); dlatego prosi Jirę o 100 wierszy, a oddaje
   najwyżej 25. Klucz projektu z odpowiedzi jest dodatkowo porównywany z argumentem. Jedyne `ORDER BY` to
   `updated DESC`. Wartości są wcześniej sprawdzane wzorcem (nazwa: litery, cyfry, spacja, `_./()&'-`;
@@ -69,8 +68,7 @@ Zasady wyników i zapytań:
   zasobie takim, jakim opisuje go Jira: zgłoszenie przeniesione do projektu z kategorią `Restricted`, nieistniejące
   i niewidoczne dają to samo `not_found_or_denied`; brak grupy narzędzia to `access_denied`. Resolver zgłoszenia
   pobiera zgłoszenie i kategorię jego projektu (`GET project/{key}`); zgłoszenie bez projektu w odpowiedzi to błąd
-  odpowiedzi, nie zgłoszenie bez klasyfikacji. Projekt albo zgłoszenie spoza linku daje `not_found_or_denied` (tak samo
-  dla istniejącego i nie; audyt: `link_scope`).
+  odpowiedzi, nie zgłoszenie bez klasyfikacji.
 - `ResultFilter`: `key` każdego trafienia `search_issues` jest `@ResourceRef`, więc starter rozwiązuje trafienia
   (jedno `fetchAll`, kategoria każdego projektu raz na listę) i usuwa to, czego polityka nie dopuszcza albo czego
   nie da się odczytać. Dlatego wynik nie ma `total` ani `returned`.
@@ -137,7 +135,7 @@ wkłada treści odpowiedzi Jiry do żadnego komunikatu.
   zmiennych `MCP_INTERNAL_URL` i `MCP_ACCEPTED_CREDENTIAL_TYPES`, gdy są ustawione; podstawione są tylko klucze
   gateway'a, paczka polityk i backend Jiry). Build kończy się błędem, gdy plik różni się od `GET /mcp-manifest` tej
   aplikacji albo ma pole `environment`. Po `package` test `ManifestArtifactIT` (failsafe) porównuje plik z manifestem
-  serwera w kontekście testowym (bez `version` i `internalUrl`, które test nadpisuje). CI: `./mvnw -B package`, potem krok
+  serwera w kontekście testowym (bez `version` i `internalUrl`, które test nadpisuje). CI: `ci/run.sh verify`, potem krok
   rejestracji bierze `mcp-app/target/mcp-manifest.json` i wysyła go certyfikatem `mcp-registry-ci-mcp-jira`; odpowiedź
   działającego serwera nie jest źródłem rejestracji. Tylko `search_issues` i `get_issue` (`READ_ONLY`) gateway
   zatwierdza sam; nowe i zmienione `add_comment`, `transition_issue` i `delete_issue` czekają na `approve` administratora.
@@ -277,21 +275,39 @@ make -C ../mcp-platform-dev jira-auth                                 # PAT alic
 
 Wynik z 2026-10-27: STATUS.md, sekcja "Demo M1".
 
+## CI
+
+Cała logika jest w `ci/run.sh` (`make ci` woła `ci/run.sh verify`); `.gitlab-ci.yml`, `Jenkinsfile` i `.github/workflows/ci.yml`
+to cienkie nakładki, więc to samo działa lokalnie, w obrazie `maven:3.9.12-eclipse-temurin-25` i w każdym z trzech systemów.
+
+| Krok | Co robi |
+| --- | --- |
+| `ci/run.sh verify` (domyślny) | `hygiene`, `mvnw clean verify`, potem kontrola, że uruchomiono co najmniej jeden test (pominięte nie liczą się) i że powstał `mcp-app/target/mcp-manifest.json` |
+| `ci/run.sh hygiene` | cudzysłowy, spacje i wielokropek spoza ASCII oraz ślady narzędzi w źródłach (perl czyta przez `<<>>`) |
+| `ci/run.sh image` | `docker build` jaru z `verify`; tylko gałąź `main`, wymaga demona Dockera |
+
+Inny argument kończy się kodem 2. Merge request i pull request nie dostają sekretów ani gniazda Dockera: testy nie
+potrzebują kontenerów, a rejestr Maven z artefaktami platformy (`MCP_MAVEN_REPOSITORY_URL`, zwykła zmienna) jest wtedy
+czytany anonimowo (`.ci/settings-anonymous.xml`). Dane dostępu (`MCP_MAVEN_REPOSITORY_USER`, `_PASSWORD`; w GitLabie
+zmienne Protected i Masked, w Jenkinsie poświadczenie `mcp-maven-registry`) widzi tylko gałąź `main`, na której działa też
+krok `image` (runner z gniazdem Dockera). Rejestracja manifestu w gateway'u (`PUT` z certyfikatem
+`mcp-registry-ci-mcp-jira`) jest osobnym krokiem pipeline'u, bo wymaga sekretu, którego repo nie zna.
+
 ## Testy
 
 | Klasa | Co sprawdza |
 | --- | --- |
 | `GetIssueToolTest` | PAT z C3 dociera do Jiry, tylko pola narzędzia w wyniku (bez e-maili, linków, HTML), tytuł i opis jako `UntrustedText`; przeniesione zgłoszenie pod nowym kluczem; brak poświadczenia i 401 -> `credential_required`; 404 = 403; złe klucze i argumenty spoza schematu to C10 `invalid_argument` i nie docierają do Jiry, nazwa nieznanego argumentu nie trafia do wyniku ani logu; nieczytelna, pusta i za duża odpowiedź, zgłoszenie bez klucza i przekierowanie -> `internal_error` bez treści w logu; timeout -> `upstream_unavailable`; PAT i treść błędu Jiry nie trafiają do wyniku ani logu |
-| `SearchIssuesToolTest` | JQL zbudowany przez serwer (dokładny tekst w układzie 4.1.0: warunki, zakres, `ORDER BY`; bez `project` i `issuetype`), wyniki spoza projektu i innego typu odrzucone, 100 wierszy z Jiry; niewidoczny projekt (404 = 403) bez wyszukiwania; `credential_required` (brak i 401); próby wstrzyknięcia JQL w filtrach i `text`, brak argumentu `jql`; 400 Jiry -> `invalid_argument` bez treści z Jiry |
+| `SearchIssuesToolTest` | JQL zbudowany przez serwer (dokładny tekst w układzie 5.1.0: warunki, zakres, `ORDER BY`; bez `project` i `issuetype`), wyniki spoza projektu i innego typu odrzucone, 100 wierszy z Jiry; niewidoczny projekt (404 = 403) bez wyszukiwania; `credential_required` (brak i 401); próby wstrzyknięcia JQL w filtrach i `text`, brak argumentu `jql`; 400 Jiry -> `invalid_argument` bez treści z Jiry |
 | `AddCommentToolTest` | komentarz z PAT użytkownika w `{noformat}`, `UPDATE` w hintach; obrazy, linki i wzmianki w treści jako literalny tekst, `{noformat}` w treści nie zamyka bloku; przeniesione zgłoszenie zapisane pod nowym kluczem i tak zgłoszone; `credential_required` (brak i 401); 404 = 403; zły klucz, pusty, za długi i ze znakiem sterującym `body`; przekierowanie i odpowiedź bez `id` -> `internal_error` |
 | `TransitionIssueToolTest` | przejście po nazwie i po id; niedostępne przejście bez `POST`; nazwa wspólna dwóm przejściom odrzucona z listą id i statusów docelowych, id z listy działa; nazwa dopasowana w całości (`Do` nie łapie `Done`); przeniesione zgłoszenie pod nowym kluczem; przekierowanie i odpowiedź inna niż 204 -> `internal_error`; 400 Jiry -> `invalid_argument`; `credential_required` (brak i 401); 404 = 403; zły klucz i nazwa przejścia |
 | `ToolListTest` | dokładnie pięć narzędzi z konfiguracji gateway'a, ryzyko w hintach, każdy obiekt schematu zamknięty (także `jql_filter`), każdy string z `maxLength`, wzorce kluczy z kontraktów |
-| `GatewayOnlyAccessTest` | bez JWT 401 (`tools/call`, `ping`, `initialize`), JWT dla innego serwera, innego narzędzia, wariant serwisowy i przeterminowany -> 401; bez JWT tylko health; system zgodny z `SystemId` |
+| `GatewayOnlyAccessTest` | bez JWT 401 (`tools/call`, `ping`, `initialize`), JWT dla innego serwera, innego narzędzia, wariant serwisowy i przeterminowany -> 401; token z claimem `vs` albo `vsc` (usunięte w kontraktach 5.x) -> 401; bez JWT tylko health; system zgodny z `SystemId` |
 | `ProductionConfigurationTest` | konfiguracja bazowa: `client-auth: need`; `accepted-credential-types` `user-secret`, bez właściwości `credential-type`; backend `http` poza `dev` odrzucony (chyba że jawnie dopuszczony); `dev` na 127.0.0.1 |
 | `DevProfileLoopbackTest` | `dev` z adresem innym niż pętla zwrotna nie wstaje |
 | `JiraServiceTest` | przypadki użycia bez Springa: projekt przed wyszukiwaniem, filtr projektu i typu wyników, 100 wierszy z Jiry i 25 w wyniku, wybór przejścia (id przed nazwą, nazwa w całości, kilka pasujących odrzucone; zabija mutację `equals` -> `contains`), zapis pod kluczem kanonicznym, komentarz w `{noformat}` |
 | `DeleteIssueToolTest` | `delete_issue`: usunięcie z PAT użytkownika, `DESTRUCTIVE` w hintach, bez grupy destructive `access_denied` bez ruchu do Jiry, zgłoszenie restricted/przeniesione do restricted/403/nieistniejące z identyczną odpowiedzią, 401 przy odczycie i przy samym DELETE -> `credential_required`, podzadania -> `invalid_argument`, 200 zamiast 204 i przekierowanie -> `internal_error`, zgłoszenie przeniesione usuwane pod nowym kluczem |
-| `ResourcePolicyTest` | polityka na zasobach: restricted i przeniesione do restricted jak brak (każde narzędzie), wyszukiwanie w projekcie restricted jak w nieistniejącym, trafienia restricted i nieczytelne usunięte z listy, zapis bez zakresu projektu, link zawężony (`vsScopes`) nie zwraca ani nie przeszukuje zasobów spoza zakresu, awaria Jiry to nie odmowa |
+| `ResourcePolicyTest` | polityka na zasobach: restricted i przeniesione do restricted jak brak (każde narzędzie), wyszukiwanie w projekcie restricted jak w nieistniejącym, trafienia restricted i nieczytelne usunięte z listy, zapis bez zakresu projektu, awaria Jiry to nie odmowa |
 | `ManifestTest` | `GET /mcp-manifest` przechodzi reguły `mcp-manifest`, definicje i `definitionHash` zgodne z `tools/list`, ryzyko i `resourceRefs` każdego narzędzia, `delete_issue` jako `DESTRUCTIVE`; bez `environment` poza `devstack`, `acceptedTypes` `["user-secret"]` |
 | `ManifestArtifactIT` | po `package`: plik `target/mcp-manifest.json` równy manifestowi serwera, wersja z pom (nie `1.0.0` testów), bez `environment` |
 | `CredentialTypeTest` | typ spoza `[user-secret]` (`user-oauth`, `token-exchange`, `service-account`), brak nagłówka typu, `User-Secret` i nieznany typ -> `internal_error`, nic nie dociera do Jiry, PAT nie idzie w świat; `user-secret` przechodzi |

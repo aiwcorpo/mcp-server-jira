@@ -2,8 +2,7 @@ package pl.aiwcorpo.mcp.jira.core.domain;
 
 /**
  * What {@code search_issues} asks Jira. The model never supplies JQL: the tool layer builds it from validated
- * filter values with the structured query builder of the starter, which also adds the narrowing of a virtual
- * server link.
+ * filter values with the structured query builder of the starter.
  *
  * @param projectKey the one project the search is limited to; the scope of the query (it is in the JQL as the project
  *                   clause); the use case also checks it on the rows
