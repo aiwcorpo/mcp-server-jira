@@ -130,12 +130,12 @@ wkłada treści odpowiedzi Jiry do żadnego komunikatu.
   Grant na zasób jest oceniany przed resolverem: wywołujący bez zakresu projektu dostaje tę odmowę, zanim serwer
   zapyta Jirę.
 - Manifest do rejestracji w gateway'u to artefakt budowy `mcp-app/target/mcp-manifest.json`, stała ścieżka. Powstaje
-  w fazie `package` każdego buildu, także z `-DskipTests` (`exec-maven-plugin` uruchamia `ManifestExport`, które startuje
-  aplikację z konfiguracją `application.yml`: wersja z pom, `internalUrl` i `acceptedTypes` z konfiguracji albo ze
-  zmiennych `MCP_INTERNAL_URL` i `MCP_ACCEPTED_CREDENTIAL_TYPES`, gdy są ustawione; podstawione są tylko klucze
-  gateway'a, paczka polityk i backend Jiry). Build kończy się błędem, gdy plik różni się od `GET /mcp-manifest` tej
-  aplikacji albo ma pole `environment`. Po `package` test `ManifestArtifactIT` (failsafe) porównuje plik z manifestem
-  serwera w kontekście testowym (bez `version` i `internalUrl`, które test nadpisuje). CI: `ci/run.sh verify`, potem krok
+  w fazie `package` każdego buildu, także z `-DskipTests` (`exec-maven-plugin` uruchamia `ManifestExport` z `src/main`,
+  które nie startuje serwera: czyta `application.yml` bez profilu, wersja z pom, `internalUrl` i `acceptedTypes` z
+  konfiguracji; pusty `internalUrl` dostaje wartość informacyjną `https://mcp-jira.internal:8443/mcp`). Te same kontrole
+  co przy starcie serwera zatrzymują build, gdy gateway odrzuciłby manifest. Po `package` test `ManifestArtifactIT`
+  (failsafe) porównuje plik z manifestem serwera w kontekście testowym (bez `version` i `internalUrl`, które test
+  nadpisuje), z hashami definicji i wersją z pom. CI: `ci/run.sh verify`, potem krok
   rejestracji bierze `mcp-app/target/mcp-manifest.json` i wysyła go certyfikatem `mcp-registry-ci-mcp-jira`; odpowiedź
   działającego serwera nie jest źródłem rejestracji. Tylko `search_issues` i `get_issue` (`READ_ONLY`) gateway
   zatwierdza sam; nowe i zmienione `add_comment`, `transition_issue` i `delete_issue` czekają na `approve` administratora.

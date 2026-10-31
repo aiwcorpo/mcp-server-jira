@@ -21,7 +21,7 @@ public class McpToolsConfiguration {
     static final Set<String> TOOLS = Set.of("search_issues", "get_issue", "add_comment", "transition_issue", "delete_issue");
 
     @Bean
-    ToolCallbackProvider mcpTools(JiraTool jiraTool) {
+    public ToolCallbackProvider mcpTools(JiraTool jiraTool) {
         ToolCallbackProvider provider = SchemaLimitedToolCallbacks.of(jiraTool);
         Set<String> names = new TreeSet<>();
         for (var callback : provider.getToolCallbacks()) {
