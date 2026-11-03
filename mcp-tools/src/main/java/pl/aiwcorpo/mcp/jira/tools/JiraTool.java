@@ -17,6 +17,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
+import pl.aiwcorpo.mcp.jira.application.service.JiraService;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 import pl.aiwcorpo.mcp.jira.core.port.in.JiraUseCase;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.AttachmentItem;
@@ -44,6 +45,7 @@ import pl.aiwcorpo.mcp.platform.guard.ToolRisk;
 import pl.aiwcorpo.mcp.platform.guard.ToolTitle;
 import pl.aiwcorpo.mcp.platform.input.ArgumentLimits;
 import pl.aiwcorpo.mcp.platform.paging.CursorCodec;
+import pl.aiwcorpo.mcp.platform.paging.PageFiller;
 import pl.aiwcorpo.mcp.platform.paging.PagedResult;
 import pl.aiwcorpo.mcp.platform.resource.QueryScope;
 import pl.aiwcorpo.mcp.platform.resource.ResourceContext;
@@ -145,11 +147,10 @@ public class JiraTool {
 
     @Tool(name = "search_issues", description = "Searches issues of one Jira project, optionally filtered by "
             + "status, assignee, issue type, words in the summary and words anywhere in the text. Returns a page of "
-            + "at most 25 issues (key, type, status, assignee username, last update time, summary as written by Jira "
-            + "users, marked as untrusted data), newest update first unless order_by says otherwise. Issues the "
-            + "caller may not see are left out, so there is no total and a page can be short or empty while "
-            + "nextCursor is set (an issue type filter is applied to the page after Jira answers). Pass nextCursor "
-            + "back with the same filters to get the next page.")
+            + "about 25 issues (key, type, status, assignee username, last update time, summary as written by Jira "
+            + "users, marked as untrusted data), newest update first unless order_by says otherwise. The server reads "
+            + "further pages from Jira to fill a page when some issues are left out, so a page can hold up to 49. "
+            + "There is no total. Pass nextCursor back with the same filters to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Szukaj zgłoszeń")
     public PagedResult<IssueListItem> searchIssues(
@@ -192,9 +193,17 @@ public class JiraTool {
                 .where("text", Operator.CONTAINS, words)
                 .orderBy(field, direction)
                 .build();
-        IssueSearchResult found = useCase.searchIssues(new IssueSearch(project, type, jql, startAt));
-        return PagedResult.of(found.issues().stream().map(JiraToolViews::listItem).toList(),
-                nextCursor("search_issues", fingerprint, found.nextStartAt()));
+        PageFiller.Filled<JiraIssue> page = PageFiller.fill(cursor == null ? null : Integer.toString(startAt),
+                JiraService.PAGE_SIZE, FILL_READS,
+                from -> {
+                    IssueSearchResult found = useCase.searchIssues(
+                            new IssueSearch(project, type, jql, from == null ? 0 : Integer.parseInt(from)));
+                    return new PageFiller.BackendPage<>(found.issues(),
+                            found.nextStartAt() == null ? null : found.nextStartAt().toString());
+                },
+                rows -> policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, rows, JiraIssue::key));
+        return PagedResult.of(page.items().stream().map(JiraToolViews::listItem).toList(),
+                nextCursor("search_issues", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())));
     }
 
     @Tool(name = "list_comments", description = "Lists the comments of one Jira issue, oldest first, 25 per page: "
@@ -248,8 +257,8 @@ public class JiraTool {
     }
 
     @Tool(name = "list_projects", description = "Lists the Jira projects the caller may browse that the platform "
-            + "policy lets through: key, name and category, 25 per page. A page can be short or empty while "
-            + "nextCursor is set. Pass nextCursor back to get the next page.")
+            + "policy lets through: key, name and category, about 25 per page (up to 49 when some projects are left out). "
+            + "Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Lista projektów")
     public PagedResult<ProjectListItem> listProjects(
@@ -259,10 +268,16 @@ public class JiraTool {
         String fingerprint = CursorCodec.fingerprint("list_projects");
         int from = position(cursor, "list_projects", fingerprint);
         List<ProjectSummary> all = useCase.listProjects();
-        int to = Math.min(all.size(), from + PROJECT_PAGE);
-        List<ProjectListItem> items = from >= all.size() ? List.of()
-                : all.subList(from, to).stream().map(ProjectListItem::of).toList();
-        return PagedResult.of(items, nextCursor("list_projects", fingerprint, to < all.size() ? to : null));
+        PageFiller.Filled<ProjectSummary> page = PageFiller.fill(Integer.toString(from), PROJECT_PAGE, FILL_READS,
+                position -> {
+                    int begin = Integer.parseInt(position);
+                    int end = Math.min(all.size(), begin + PROJECT_PAGE);
+                    return new PageFiller.BackendPage<>(begin >= all.size() ? List.<ProjectSummary>of() : all.subList(begin, end),
+                            end < all.size() ? Integer.toString(end) : null);
+                },
+                rows -> policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE, rows, ProjectSummary::key));
+        return PagedResult.of(page.items().stream().map(ProjectListItem::of).toList(),
+                nextCursor("list_projects", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())));
     }
 
     @Tool(name = "find_assignable_users", description = "Finds users who can be assigned issues of one Jira project "
@@ -592,7 +607,12 @@ public class JiraTool {
     }
 
     /** Rows of one page of {@code list_projects}. */
-    static final int PROJECT_PAGE = 25;
+    static final int PROJECT_PAGE = JiraService.PAGE_SIZE;
+    /**
+     * Backend pages one call may read to fill a page that the policy thinned out: a short page with a cursor would tell
+     * the caller that something was hidden (PageFiller). Each read is a call to Jira, so the number is small.
+     */
+    static final int FILL_READS = 4;
 
     /**
      * The issue the resolver fetched for the policy: the one judged is the one returned, no second call to Jira, and

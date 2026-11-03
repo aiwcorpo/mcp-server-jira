@@ -190,11 +190,25 @@ class SearchIssuesToolTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             JsonNode page = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits one hidden")));
 
-            assertThat(page.at("/items")).as("ABC-30 is in a restricted project and is removed").hasSize(24);
+            assertThat(page.at("/items")).as("ABC-30 is in a restricted project and is removed; the short first page is "
+                    + "filled from the next one so its size does not show it").hasSize(49);
             assertThat(page.toString()).doesNotContain("ABC-30");
-            assertThat(page.at("/nextCursor").asString()).as("only the cursor says there is more").isNotBlank();
+            assertThat(page.at("/nextCursor").asString()).isNotBlank();
             assertThat(page.has("hasMore") || page.has("omitted") && page.at("/omitted").size() > 0).isFalse();
         }
+    }
+
+    @Test
+    void theNextPageStartsWhereTheFilledOneEnded() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            String cursor = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits one hidden")))
+                    .at("/nextCursor").asString();
+            JsonNode next = json(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits one hidden", "cursor", cursor)));
+
+            assertThat(next.at("/items/0/key").asString()).isEqualTo("ABC-149");
+        }
+        assertThat(BACKEND.searches()).extracting(b -> JSON.readTree(b).at("/startAt").asInt()).containsExactly(0, 25, 50);
     }
 
     @Test

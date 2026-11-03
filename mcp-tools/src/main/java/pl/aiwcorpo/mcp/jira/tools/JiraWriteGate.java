@@ -1,5 +1,7 @@
 package pl.aiwcorpo.mcp.jira.tools;
 
+import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import pl.aiwcorpo.mcp.jira.core.domain.BackendDegradedException;
 import pl.aiwcorpo.mcp.platform.capability.BackendCapabilities;
@@ -16,14 +18,20 @@ public class JiraWriteGate {
 
     static final String PROBE = "jira";
 
-    private final BackendCapabilities capabilities;
+    private final Supplier<Capabilities> current;
 
+    @Autowired
     public JiraWriteGate(BackendCapabilities capabilities) {
-        this.capabilities = capabilities;
+        this(() -> capabilities.of(PROBE));
+    }
+
+    /** For tests: the starter's {@code BackendCapabilities} cannot be filled from outside its package. */
+    JiraWriteGate(Supplier<Capabilities> current) {
+        this.current = current;
     }
 
     public void requireWritable() {
-        if (capabilities.of(PROBE).state() == Capabilities.State.DEGRADED) {
+        if (current.get().state() == Capabilities.State.DEGRADED) {
             throw new BackendDegradedException();
         }
     }

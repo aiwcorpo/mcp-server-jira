@@ -292,6 +292,8 @@ final class StubBackend {
         } else if ("/comment".equals(sub) && "GET".equals(method) && ("ABC-1".equals(key) || "ABC-40".equals(key))) {
             respond(exchange, 200, "ABC-1".equals(key) ? fixture("comments-abc-1.json")
                     : manyComments(exchange.getRequestURI().getRawQuery()));
+        } else if (sub != null && sub.startsWith("/comment/") && "GET".equals(method) && "ABC-1".equals(key)) {
+            comment(exchange, sub.substring("/comment/".length()));
         } else if ("/worklog".equals(sub) && "GET".equals(method) && "ABC-1".equals(key)) {
             respond(exchange, 200, fixture("worklogs-abc-1.json"));
         } else if ("ABC-403".equals(key)) {
@@ -392,7 +394,7 @@ final class StubBackend {
                 noContent(exchange);
             }
         } else if (sub != null && sub.startsWith("/comment/")) {
-            if (sub.endsWith("/10500")) {
+            if (sub.endsWith("/10500") || sub.endsWith("/10600")) {
                 respond(exchange, 200, """
                         {"self":"https://jira.corp.test/rest/api/2/issue/10100/comment/10500","id":"10500",
                          "author":{"name":"jkowalski"},"body":"(echo)",
@@ -409,6 +411,22 @@ final class StubBackend {
         } else {
             respond(exchange, 404, "{\"errorMessages\":[\"null for uri\"],\"errors\":{}}");
         }
+    }
+
+    /** Comment 10500 hangs under ABC-1 (issue id 10100); 10600 is addressed through ABC-1 but belongs to issue 10999. */
+    private void comment(HttpExchange exchange, String id) throws IOException {
+        String issueId = switch (id) {
+            case "10500" -> "10100";
+            case "10600" -> "10999";
+            default -> null;
+        };
+        if (issueId == null) {
+            respond(exchange, 404, "{\"errorMessages\":[\"Can not find comment.\"],\"errors\":{}}");
+            return;
+        }
+        respond(exchange, 200, ("{\"self\":\"https://jira.corp.test/rest/api/2/issue/" + issueId + "/comment/" + id
+                + "\",\"id\":\"" + id + "\",\"author\":{\"name\":\"alice\"},\"body\":\"x\","
+                + "\"created\":\"2026-10-01T09:00:00.000+0000\",\"updated\":\"2026-10-01T09:00:00.000+0000\"}"));
     }
 
     private static void noContent(HttpExchange exchange) throws IOException {

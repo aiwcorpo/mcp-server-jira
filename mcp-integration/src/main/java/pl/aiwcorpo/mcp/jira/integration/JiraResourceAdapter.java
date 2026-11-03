@@ -74,6 +74,10 @@ public class JiraResourceAdapter implements JiraResourcePort {
     private static final List<String> SEARCH_FIELDS =
             List.of("summary", "status", "issuetype", "assignee", "project", "updated");
 
+    /** The {@code self} link of a comment: {@code .../issue/<issue id>/comment/<comment id>}. */
+    private static final java.util.regex.Pattern COMMENT_SELF =
+            java.util.regex.Pattern.compile("/issue/([0-9]+)/comment/([0-9]+)$");
+
     private static final String DEV_PROFILE = "dev";
     private static final Logger LOG = LoggerFactory.getLogger(JiraResourceAdapter.class);
 
@@ -288,6 +292,11 @@ public class JiraResourceAdapter implements JiraResourcePort {
 
     @Override
     public Optional<JiraComment> editComment(String issueKey, String commentId, String body) {
+        // The PUT path names the issue, but a comment id alone is what Jira looks up: confirm, as the user, that the
+        // comment hangs under the issue the policy judged before anything is written.
+        if (!commentBelongsTo(issueKey, commentId)) {
+            return Optional.empty();
+        }
         try {
             return asUser(() -> client.put()
                     .uri("/rest/api/2/issue/{key}/comment/{id}", issueKey, commentId)
@@ -300,6 +309,25 @@ public class JiraResourceAdapter implements JiraResourcePort {
         } catch (HttpClientErrorException.BadRequest rejected) {
             throw new RejectedByJiraException(Operation.COMMENT);
         }
+    }
+
+    private boolean commentBelongsTo(String issueKey, String commentId) {
+        Optional<IssueIdResponse> issue = asUser(() -> client.get()
+                .uri("/rest/api/2/issue/{key}?fields=summary", issueKey)
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(IssueIdResponse.class));
+        Optional<CommentSelfResponse> comment = asUser(() -> client.get()
+                .uri("/rest/api/2/issue/{key}/comment/{id}", issueKey, commentId)
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(CommentSelfResponse.class));
+        if (issue.isEmpty() || comment.isEmpty() || issue.get().id() == null || comment.get().self() == null
+                || !commentId.equals(comment.get().id())) {
+            return false;
+        }
+        java.util.regex.Matcher link = COMMENT_SELF.matcher(comment.get().self());
+        return link.find() && link.group(1).equals(issue.get().id()) && link.group(2).equals(commentId);
     }
 
     @Override
@@ -622,7 +650,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record NamedWithRelease(String name, boolean released) {
+    record NamedWithRelease(String name, Boolean released) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -638,7 +666,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
                     names(issueTypes), names(components),
                     (versions == null ? List.<NamedWithRelease>of() : versions).stream()
                             .filter(v -> v.name() != null)
-                            .map(v -> new ProjectDetails.Version(v.name(), v.released())).toList());
+                            .map(v -> new ProjectDetails.Version(v.name(), Boolean.TRUE.equals(v.released()))).toList());
         }
 
         private static List<String> names(List<Named> named) {
@@ -660,13 +688,13 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record UserResponse(String name, String displayName, boolean active) {
+    record UserResponse(String name, String displayName, Boolean active) {
 
         JiraUser toDomain() {
             if (name == null || name.isBlank()) {
                 throw new BackendResponseException("user without name");
             }
-            return new JiraUser(name, displayName == null ? "" : displayName, active);
+            return new JiraUser(name, displayName == null ? "" : displayName, Boolean.TRUE.equals(active));
         }
     }
 
@@ -691,6 +719,14 @@ public class JiraResourceAdapter implements JiraResourcePort {
             return new CommentPage(comments.stream().map(CommentEntry::toDomain).toList(),
                     nextStartAt(startAt, comments.size(), total));
         }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record IssueIdResponse(String id) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommentSelfResponse(String id, String self) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
