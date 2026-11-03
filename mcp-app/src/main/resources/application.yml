@@ -44,6 +44,10 @@ aiwcorpo:
         version: '@project.version@'
         internal-url: ${MCP_INTERNAL_URL:}
         accepted-credential-types: ${MCP_ACCEPTED_CREDENTIAL_TYPES:user-secret}
+      # HMAC key of the paging cursors (Base64, at least 32 bytes). Every instance behind the gateway must have the
+      # same one; without it each instance draws its own and a cursor issued by another instance is refused.
+      paging:
+        cursor-key: ${MCP_PAGING_CURSOR_KEY:}
 
 jira:
   backend:
