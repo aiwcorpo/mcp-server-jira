@@ -182,7 +182,7 @@ Konto, które użytkownik podłącza w portalu, powinno mieć w projektach, na k
 PAT musi być włączony na instancji (`atlassian.pats.enabled`, domyślnie tak; administrator może go wyłączyć) i ma maksymalny czas życia (domyślnie 365 dni).
 Polityka platformy (grupy `mcp-jira-*` i grant na projekty) zwęża to, co serwer pozwoli zrobić; nigdy nie poszerza uprawnień konta w Jirze.
 
-## Typ poświadczenia, manifest i metryki (M4)
+## Poświadczenie, manifest i metryki
 
 - Typ poświadczenia: `manifest.accepted-credential-types` to `[user-secret]` (zmienna `MCP_ACCEPTED_CREDENTIAL_TYPES`).
   Pierwszy typ zbioru jest typem domyślnym i trafia do Cedar jako `context.credentialType`; właściwości
@@ -359,7 +359,7 @@ Jiry na `http://localhost:18081` i `MCP_JIRA_ALLOW_PLAIN_HTTP=true`:
 ./mvnw verify && scripts/run-dev-host.sh
 ```
 
-### Przebieg M1 z gateway'em i brokerem (procesy hosta)
+### Przebieg z gateway'em i brokerem (procesy hosta)
 
 ```bash
 (cd ../mcp-credential-broker && MCP_GATEWAY_JWKS_URI=https://localhost:18445/.well-known/jwks.json \
@@ -373,7 +373,7 @@ python3 ../mcp-platform-dev/scripts/mcpdev.py audit <X-Request-Id tools/call> \
 make -C ../mcp-platform-dev jira-auth                                 # PAT alice-pat
 ```
 
-Wynik z 2026-10-27: STATUS.md, sekcja "Demo M1".
+Wynik z 2026-10-27: STATUS.md, sekcja "Demo".
 
 ## CI
 
@@ -392,7 +392,7 @@ czytany anonimowo (`.ci/settings-anonymous.xml`). Dane dostępu (`MCP_MAVEN_REPO
 zmienne Protected i Masked, w Jenkinsie poświadczenie `mcp-maven-registry`) widzi tylko gałąź `main`, na której działa też
 krok `image` (runner z gniazdem Dockera; w GitLabie tag `docker-socket` musi należeć do runnera chronionego (protected),
 inaczej gniazdo trafiłoby w ręce merge requestu; w GitHubie sekrety są w Environment `ci-main`). Moduły z wymaganymi
-testami: `CI_TEST_MODULES` (domyślnie `mcp-application mcp-integration mcp-tools mcp-app`), dolna granica dla `mcp-app`: `CI_APP_MIN_TESTS` (20).
+testami: `CI_TEST_MODULES` (domyślnie `mcp-application mcp-integration mcp-tools mcp-app`), dolna granica dla `mcp-app`: `CI_APP_MIN_TESTS` (150).
 Rejestracja manifestu w gateway'u (`PUT` z certyfikatem `mcp-registry-ci-mcp-jira`) jest osobnym krokiem pipeline'u
 serwera, bo wymaga sekretu, którego repo nie zawiera.
 

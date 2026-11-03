@@ -62,6 +62,21 @@ abstract class ServerTestSupport {
     @LocalServerPort
     int port;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    pl.aiwcorpo.mcp.platform.capability.BackendCapabilities capabilities;
+
+    /** Writes are closed until the version probe has answered, so a test that writes waits for its first answer. */
+    @org.junit.jupiter.api.BeforeEach
+    void waitForTheFirstProbe() throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(20).toNanos();
+        while (capabilities.of("jira").state() == pl.aiwcorpo.mcp.platform.capability.Capabilities.State.UNAVAILABLE
+                && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+        assertThat(capabilities.of("jira").state()).as("the probe of the stub backend").isNotEqualTo(
+                pl.aiwcorpo.mcp.platform.capability.Capabilities.State.UNAVAILABLE);
+    }
+
     String baseUrl() {
         return "http://127.0.0.1:" + port;
     }

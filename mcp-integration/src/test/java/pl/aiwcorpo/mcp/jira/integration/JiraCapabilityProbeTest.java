@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import pl.aiwcorpo.mcp.jira.core.domain.ObservedVersions;
 import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
 import pl.aiwcorpo.mcp.platform.capability.Capabilities;
 import pl.aiwcorpo.mcp.platform.capability.Capabilities.State;
@@ -64,14 +65,67 @@ class JiraCapabilityProbeTest {
             }
         };
 
-        assertThat(new JiraCapabilityProbe(jira).probe().backendVersion()).isEqualTo("10.3.5");
-        assertThat(new JiraCapabilityProbe(jira).name()).isEqualTo("jira");
+        assertThat(new JiraCapabilityProbe(jira, new ObservedVersions()).probe().backendVersion()).isEqualTo("10.3.5");
+        assertThat(new JiraCapabilityProbe(jira, new ObservedVersions()).name()).isEqualTo("jira");
     }
 
     @Test
     void aFailingBackendFailsTheProbeAndTheStarterReportsUnavailable() {
         UnsupportedJira jira = new UnsupportedJira() { };
 
-        assertThatThrownBy(() -> new JiraCapabilityProbe(jira).probe()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> new JiraCapabilityProbe(jira, new ObservedVersions()).probe()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    /** A probe whose answer the test changes between runs: a version, or a failure. */
+    private static final class ScriptedJira extends UnsupportedJira {
+        ServerInfo answer = new ServerInfo("11.3.0", "Server");
+        RuntimeException failure;
+
+        @Override
+        public ServerInfo serverInfo() {
+            if (failure != null) {
+                throw failure;
+            }
+            return answer;
+        }
+    }
+
+    @Test
+    void aFailingRunAfterAnUntestedFindingKeepsTheFinding() throws Exception {
+        ScriptedJira jira = new ScriptedJira();
+        ObservedVersions observed = new ObservedVersions();
+        JiraCapabilityProbe probe = new JiraCapabilityProbe(jira, observed);
+        jira.answer = new ServerInfo("12.1.0", "Server");
+        assertThat(probe.probe().state()).isEqualTo(State.DEGRADED);
+
+        jira.failure = new IllegalStateException("502");
+        Capabilities afterFailure = probe.probe();
+        jira.failure = null;
+        jira.answer = new ServerInfo(null, null);
+        Capabilities afterUnreadable = probe.probe();
+
+        assertThat(afterFailure.state()).as("one failed run does not reopen writes").isEqualTo(State.DEGRADED);
+        assertThat(afterUnreadable.state()).isEqualTo(State.DEGRADED);
+        assertThat(observed.untestedSeen()).isTrue();
+    }
+
+    @Test
+    void aTestedVersionClearsTheFindingAndAFailureBeforeAnyFindingStaysAFailure() throws Exception {
+        ScriptedJira jira = new ScriptedJira();
+        ObservedVersions observed = new ObservedVersions();
+        JiraCapabilityProbe probe = new JiraCapabilityProbe(jira, observed);
+        jira.failure = new IllegalStateException("timeout");
+        assertThatThrownBy(probe::probe).isInstanceOf(IllegalStateException.class);
+        assertThat(observed.untestedSeen()).isFalse();
+
+        jira.failure = null;
+        jira.answer = new ServerInfo("8.14.0", "Server");
+        probe.probe();
+        assertThat(observed.untestedSeen()).isTrue();
+        jira.answer = new ServerInfo("10.3.5", "Server");
+        assertThat(probe.probe().state()).isEqualTo(State.SUPPORTED);
+        assertThat(observed.untestedSeen()).isFalse();
+        jira.failure = new IllegalStateException("502");
+        assertThatThrownBy(probe::probe).isInstanceOf(IllegalStateException.class);
     }
 }

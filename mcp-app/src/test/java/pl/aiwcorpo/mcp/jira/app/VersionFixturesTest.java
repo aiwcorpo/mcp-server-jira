@@ -32,8 +32,9 @@ class VersionFixturesTest extends ServerTestSupport {
     }
 
     @AfterEach
-    void backToTheDefaultVersion() {
+    void backToTheDefaultVersion() throws Exception {
         BACKEND.useDefaultFixtures();
+        probe.probe();
     }
 
     @ParameterizedTest

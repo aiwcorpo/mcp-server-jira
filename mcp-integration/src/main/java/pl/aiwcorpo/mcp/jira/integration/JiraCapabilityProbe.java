@@ -3,6 +3,7 @@ package pl.aiwcorpo.mcp.jira.integration;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.stereotype.Component;
+import pl.aiwcorpo.mcp.jira.core.domain.ObservedVersions;
 import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
 import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 import pl.aiwcorpo.mcp.platform.capability.Capabilities;
@@ -18,7 +19,9 @@ import pl.aiwcorpo.mcp.platform.capability.ProductVersion;
  * added in 10.4 (the "new search API") replaces the Lucene Java API for apps and leaves the REST search as it was.
  * Anything else is {@code DEGRADED}: older than 9.12 (out of support at Atlassian, PATs from 8.14 only), a major
  * newer than tested, or Jira Cloud (no {@code /rest/api/2/search} there, a different credential). In that state the
- * server still reads and refuses every change with {@code upstream_unavailable}, instead of guessing.
+ * server still reads and refuses every change with {@code upstream_unavailable}, instead of guessing. A failing or
+ * unreadable {@code serverInfo} after such a finding keeps reporting it ({@link ObservedVersions}): one bad run of the
+ * probe does not reopen writes.
  *
  * <p>The version is untrusted text from the backend: it is only parsed to numbers here, and the starter cleans what it
  * logs.
@@ -40,9 +43,12 @@ public class JiraCapabilityProbe implements CapabilityProbe {
     static final int MAX_MAJOR = 11;
 
     private final JiraResourcePort jira;
+    private final ObservedVersions observed;
+    private volatile Capabilities lastUntested;
 
-    public JiraCapabilityProbe(JiraResourcePort jira) {
+    public JiraCapabilityProbe(JiraResourcePort jira, ObservedVersions observed) {
         this.jira = jira;
+        this.observed = observed;
     }
 
     @Override
@@ -52,7 +58,32 @@ public class JiraCapabilityProbe implements CapabilityProbe {
 
     @Override
     public Capabilities probe() {
-        return classify(jira.serverInfo());
+        Capabilities found;
+        try {
+            found = classify(jira.serverInfo());
+        } catch (RuntimeException failed) {
+            Capabilities untested = lastUntested;
+            if (untested != null) {
+                return untested;
+            }
+            throw failed;
+        }
+        switch (found.state()) {
+            case SUPPORTED -> {
+                lastUntested = null;
+                observed.tested();
+            }
+            case DEGRADED -> {
+                lastUntested = found;
+                observed.untested();
+            }
+            case UNAVAILABLE -> {
+                if (lastUntested != null) {
+                    return lastUntested;
+                }
+            }
+        }
+        return found;
     }
 
     static Capabilities classify(ServerInfo info) {
