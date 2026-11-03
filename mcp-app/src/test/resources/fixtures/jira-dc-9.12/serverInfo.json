@@ -1,0 +1,4 @@
+{"baseUrl":"https://jira.corp.test","version":"9.12.14","versionNumbers":[9,12,14],"deploymentType":"Server",
+ "buildNumber":912014,"buildDate":"2025-04-10T00:00:00.000+0000","databaseBuildNumber":912014,
+ "serverTime":"2026-11-03T09:00:00.000+0000","scmInfo":"0a1b2c3d4e5f","serverTitle":"Corp Jira",
+ "healthChecks":[]}

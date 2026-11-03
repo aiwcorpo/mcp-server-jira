@@ -29,13 +29,14 @@ class SearchIssuesToolTest extends ServerTestSupport {
 
             assertThat(result.isError()).isFalse();
             JsonNode found = json(result);
-            assertThat(found.at("/project").asString()).isEqualTo("ABC");
-            assertThat(found.at("/issues/0/key").asString()).isEqualTo("ABC-1");
-            assertThat(found.at("/issues/0/summary/text").asString()).isEqualTo("Login page returns 500");
-            assertThat(found.at("/issues/0/summary/kind").asString()).isEqualTo("untrusted-data");
+            assertThat(found.at("/items/0/key").asString()).isEqualTo("ABC-1");
+            assertThat(found.at("/items/0/summary/text").asString()).isEqualTo("Login page returns 500");
+            assertThat(found.at("/items/0/summary/kind").asString()).isEqualTo("untrusted-data");
             assertThat(found.has("total")).as("Jira's total counts what the filters remove").isFalse();
-            assertThat(found.at("/issues")).hasSize(2);
-            assertThat(found.at("/issues/1/assignee").asString()).isEqualTo("alice");
+            assertThat(found.has("hasMore")).as("replaced by nextCursor").isFalse();
+            assertThat(found.at("/nextCursor").isNull() || found.at("/nextCursor").isMissingNode()).isTrue();
+            assertThat(found.at("/items")).hasSize(2);
+            assertThat(found.at("/items/1/assignee").asString()).isEqualTo("alice");
             assertThat(text(result)).as("an issue of another project is dropped").doesNotContain("DEF-1")
                     .doesNotContain("alice@corp.test", "Alice Tester");
         }
@@ -46,7 +47,8 @@ class SearchIssuesToolTest extends ServerTestSupport {
                 + " AND text ~ \"login page\") AND project in (\"ABC\") ORDER BY updated DESC");
         assertThat(search.at("/jql").asString()).as("the project is the scope clause, the type is not in the query")
                 .doesNotContain("issuetype");
-        assertThat(search.at("/maxResults").asInt()).isEqualTo(100);
+        assertThat(search.at("/maxResults").asInt()).isEqualTo(25);
+        assertThat(search.at("/startAt").asInt()).isZero();
         assertThat(BACKEND.authorizations()).containsOnly(PAT);
     }
 
@@ -57,10 +59,8 @@ class SearchIssuesToolTest extends ServerTestSupport {
                     "jql_filter", Map.of("type", "bug")));
 
             assertThat(result.isError()).isFalse();
-            assertThat(json(result).at("/issues")).hasSize(1);
-            assertThat(json(result).at("/issues/0/key").asString()).isEqualTo("ABC-2");
-            assertThat(json(result).at("/hasMore").isBoolean()).as("the result says whether it may be incomplete").isTrue();
-            assertThat(json(result).at("/hasMore").asBoolean()).isFalse();
+            assertThat(json(result).at("/items")).hasSize(1);
+            assertThat(json(result).at("/items/0/key").asString()).isEqualTo("ABC-2");
         }
         assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
                 .isEqualTo("project in (\"ABC\") ORDER BY updated DESC");
@@ -162,27 +162,100 @@ class SearchIssuesToolTest extends ServerTestSupport {
     }
 
     @Test
-    void aHiddenHitDoesNotChangeTheAnswerAsToHasMore() {
+    void aLongResultIsPagedWithACursorAndNoTotal() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
-            JsonNode plain = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits")));
-            JsonNode withHidden = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits one hidden")));
+            JsonNode first = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits")));
+            assertThat(first.at("/items")).hasSize(25);
+            assertThat(first.at("/items/0/key").asString()).isEqualTo("ABC-100");
+            String cursor = first.at("/nextCursor").asString();
+            assertThat(cursor).matches("^[A-Za-z0-9_.-]{1,1024}$");
+            assertThat(first.has("total")).isFalse();
 
-            assertThat(plain.at("/issues")).hasSize(25);
-            assertThat(withHidden.at("/issues")).as("ABC-30 is in a restricted project and is removed").hasSize(25);
-            assertThat(withHidden.at("/hasMore")).as("26 raw hits, 25 visible: same as 25 visible hits")
-                    .isEqualTo(plain.at("/hasMore"));
-            assertThat(withHidden.at("/hasMore").asBoolean()).isFalse();
-            assertThat(withHidden.toString()).doesNotContain("ABC-30");
+            JsonNode second = json(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits", "cursor", cursor)));
+            assertThat(second.at("/items/0/key").asString()).isEqualTo("ABC-125");
+            assertThat(second.at("/items")).hasSize(25);
+
+            JsonNode third = json(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits", "cursor", second.at("/nextCursor").asString())));
+            assertThat(third.at("/items")).hasSize(10);
+            assertThat(third.at("/nextCursor").isNull() || third.at("/nextCursor").isMissingNode())
+                    .as("the last page has no cursor").isTrue();
+        }
+        assertThat(BACKEND.searches()).extracting(b -> JSON.readTree(b).at("/startAt").asInt()).containsExactly(0, 25, 50);
+    }
+
+    @Test
+    void aHiddenHitLeavesNoTraceInThePage() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode page = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits one hidden")));
+
+            assertThat(page.at("/items")).as("ABC-30 is in a restricted project and is removed").hasSize(24);
+            assertThat(page.toString()).doesNotContain("ABC-30");
+            assertThat(page.at("/nextCursor").asString()).as("only the cursor says there is more").isNotBlank();
+            assertThat(page.has("hasMore") || page.has("omitted") && page.at("/omitted").size() > 0).isFalse();
         }
     }
 
     @Test
-    void moreThan25VisibleHitsSayHasMore() {
+    void aCursorOnlyWorksForTheQueryAndTheUserItWasIssuedFor() {
+        String cursor;
         try (McpSyncClient client = clientWithCredential(PAT)) {
-            JsonNode found = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits visible extra")));
+            cursor = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits")))
+                    .at("/nextCursor").asString();
+            BACKEND.reset();
 
-            assertThat(found.at("/issues")).hasSize(25);
-            assertThat(found.at("/hasMore").asBoolean()).isTrue();
+            assertInvalidArgument(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits", "jql_filter", Map.of("status", "To Do"), "cursor", cursor)),
+                    "The cursor is not valid for this query or has expired");
+            assertInvalidArgument(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hit", "cursor", cursor)), "The cursor is not valid");
+            assertInvalidArgument(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits", "cursor", cursor + "x")), "The cursor is not valid");
+            assertInvalidArgument(call(client, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits", "cursor", "AAAA.AAAA")), "The cursor is not valid");
         }
+        try (McpSyncClient other = clientWithToken(user -> {
+            editor(user);
+            user.subject("someone-else");
+        }, PAT)) {
+            assertInvalidArgument(call(other, "search_issues",
+                    Map.of("project", "ABC", "text", "many hits", "cursor", cursor)), "The cursor is not valid");
+        }
+        assertThat(BACKEND.searches()).as("a refused cursor never reaches Jira").isEmpty();
+    }
+
+    @Test
+    void aCursorOfAnotherToolIsRefused() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            String cursor = json(call(client, "search_issues", Map.of("project", "ABC", "text", "many hits")))
+                    .at("/nextCursor").asString();
+
+            assertInvalidArgument(call(client, "list_comments", Map.of("issueKey", "ABC-40", "cursor", cursor)),
+                    "The cursor is not valid");
+        }
+    }
+
+    @Test
+    void sortAndSummaryFilterGoThroughTheStructuredQuery() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(call(client, "search_issues", Map.of("project", "ABC", "order_by", "created", "order", "asc",
+                    "jql_filter", Map.of("summary", "login (page)"))).isError()).isFalse();
+        }
+        assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
+                .isEqualTo("(summary ~ \"login page\") AND project in (\"ABC\") ORDER BY created ASC");
+    }
+
+    @Test
+    void sortFieldsOutsideTheClosedListAreRefusedBeforeJira() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "order_by", "reporter")),
+                    "order_by does not match the required format");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "order_by", "updated; DROP")),
+                    "order_by");
+            assertInvalidArgument(call(client, "search_issues", Map.of("project", "ABC", "order", "sideways")),
+                    "order does not match the required format");
+        }
+        assertThat(BACKEND.searches()).isEmpty();
     }
 }

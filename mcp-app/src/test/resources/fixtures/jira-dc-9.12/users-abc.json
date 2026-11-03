@@ -1,0 +1,4 @@
+[{"self":"https://jira.corp.test/rest/api/2/user?username=alice","key":"alice","name":"alice","emailAddress":"alice@corp.test",
+  "displayName":"Alice Tester","active":true,"timeZone":"Europe/Warsaw"},
+ {"self":"https://jira.corp.test/rest/api/2/user?username=bob","key":"bob","name":"bob","emailAddress":"bob@corp.test",
+  "displayName":"Bob Builder","active":true,"timeZone":"Europe/Warsaw"}]

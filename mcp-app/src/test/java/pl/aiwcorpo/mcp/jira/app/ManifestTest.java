@@ -109,18 +109,43 @@ class ManifestTest extends ServerTestSupport {
 
     @Test
     void theRiskAndTheResourceRefsOfEveryToolAreDeclared() throws Exception {
-        Map<String, String> risks = Map.of("get_issue", "READ_ONLY", "search_issues", "READ_ONLY",
-                "add_comment", "UPDATE", "transition_issue", "UPDATE", "delete_issue", "DESTRUCTIVE");
-        Map<String, String> refArguments = Map.of("get_issue", "issueKey", "search_issues", "project",
-                "add_comment", "issueKey", "transition_issue", "issueKey", "delete_issue", "issueKey");
+        Map<String, String> refArguments = new java.util.HashMap<>();
+        for (String tool : List.of("get_issue", "list_comments", "list_transitions", "list_worklogs", "list_attachments",
+                "add_comment", "edit_comment", "transition_issue", "update_issue", "assign_issue", "unassign_issue",
+                "add_worklog", "delete_issue")) {
+            refArguments.put(tool, "issueKey");
+        }
+        for (String tool : List.of("search_issues", "get_project", "find_assignable_users", "create_issue")) {
+            refArguments.put(tool, "project");
+        }
         JsonNode manifest = manifest();
 
-        assertThat(manifest.get("tools")).hasSize(risks.size());
+        assertThat(manifest.get("tools")).hasSize(ToolListTest.READ_TOOLS_AND_WRITE_TOOLS.size());
         for (JsonNode tool : manifest.get("tools")) {
             String name = tool.get("name").asString();
-            assertThat(tool.get("risk").asString()).as(name).isEqualTo(risks.get(name));
-            assertThat(tool.get("resourceRefs")).as(name).hasSize(1);
-            assertThat(tool.at("/resourceRefs/0/argument").asString()).as(name).isEqualTo(refArguments.get(name));
+            String risk = ToolListTest.READ_TOOLS.contains(name) ? "READ_ONLY"
+                    : ToolListTest.UPDATE_TOOLS.contains(name) ? "UPDATE" : "DESTRUCTIVE";
+            assertThat(tool.get("risk").asString()).as(name).isEqualTo(risk);
+            if ("list_projects".equals(name)) {
+                assertThat(tool.get("resourceRefs")).as("the projects are judged one by one in the result").isEmpty();
+            } else if ("link_issues".equals(name)) {
+                assertThat(tool.get("resourceRefs")).as(name).hasSize(2);
+                assertThat(List.of(tool.at("/resourceRefs/0/argument").asString(), tool.at("/resourceRefs/1/argument").asString()))
+                        .containsExactlyInAnyOrder("outwardIssueKey", "inwardIssueKey");
+            } else {
+                assertThat(tool.get("resourceRefs")).as(name).hasSize(1);
+                assertThat(tool.at("/resourceRefs/0/argument").asString()).as(name).isEqualTo(refArguments.get(name));
+            }
+        }
+    }
+
+    @Test
+    void createIssueNeedsTheUpdateActionOnAProject() throws Exception {
+        for (JsonNode tool : manifest().get("tools")) {
+            if ("create_issue".equals(tool.get("name").asString())) {
+                assertThat(tool.at("/resourceRefs/0/type").asString()).isEqualTo("Jira::Project");
+                assertThat(tool.get("action").asString()).isEqualTo("update");
+            }
         }
     }
 

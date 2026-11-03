@@ -1,0 +1,7 @@
+{"self":"https://jira.corp.test/rest/api/2/project/10000","id":"10000","key":"ABC","name":"Alpha Team",
+ "description":"Alpha team backlog","lead":{"name":"alice","displayName":"Alice Tester"},
+ "components":[{"id":"10010","name":"Backend"},{"id":"10011","name":"Web UI"}],
+ "issueTypes":[{"id":"10002","name":"Task","subtask":false},{"id":"10003","name":"Bug","subtask":false},
+  {"id":"10004","name":"Sub-task","subtask":true}],
+ "versions":[{"id":"10100","name":"1.0","released":true},{"id":"10101","name":"1.1","released":false}],
+ "projectTypeKey":"software"}

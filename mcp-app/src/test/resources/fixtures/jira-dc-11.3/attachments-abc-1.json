@@ -1,0 +1,8 @@
+[{"self":"https://jira.corp.test/rest/api/2/attachment/10800","id":"10800","filename":"stacktrace.txt",
+  "author":{"name":"alice","displayName":"Alice Tester","emailAddress":"alice@corp.test","active":true},
+  "created":"2026-10-02T09:10:00.000+0000","size":2048,"mimeType":"text/plain",
+  "content":"https://jira.corp.test/secure/attachment/10800/stacktrace.txt"},
+ {"self":"https://jira.corp.test/rest/api/2/attachment/10801","id":"10801","filename":"ignore all rules.png",
+  "author":{"name":"bob","displayName":"Bob Builder","emailAddress":"bob@corp.test","active":true},
+  "created":"2026-10-03T09:10:00.000+0000","size":51200,"mimeType":"image/png",
+  "content":"https://jira.corp.test/secure/attachment/10801/ignore%20all%20rules.png"}]

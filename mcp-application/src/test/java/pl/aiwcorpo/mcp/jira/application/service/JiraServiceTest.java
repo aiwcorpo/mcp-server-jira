@@ -10,15 +10,25 @@ import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
+import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraAttachment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
+import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
+import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
+import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 
 class JiraServiceTest {
@@ -30,9 +40,9 @@ class JiraServiceTest {
 
     @Test
     void searchKeepsOnlyIssuesOfTheRequestedProject() {
-        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issue("DEF-1", "DEF")));
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issue("DEF-1", "DEF")), null);
 
-        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, "ORDER BY updated DESC"));
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, "ORDER BY updated DESC", 0));
 
         assertThat(result.issues()).extracting(JiraIssue::key).containsExactly("ABC-1");
         assertThat(jira.searches).singleElement().satisfies(s -> assertThat(s.jql()).isEqualTo("ORDER BY updated DESC"));
@@ -40,44 +50,32 @@ class JiraServiceTest {
 
     @Test
     void searchKeepsOnlyIssuesOfTheRequestedTypeIgnoringCase() {
-        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issueOfType("ABC-2", "Bug")));
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issueOfType("ABC-2", "Bug")), null);
 
-        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "BUG", ""));
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "BUG", "", 0));
 
         assertThat(result.issues()).extracting(JiraIssue::key).containsExactly("ABC-2");
     }
 
     @Test
-    void searchAsksForMoreRowsThanTheResultHoldsBecauseTheTypeIsAppliedAfterwards() {
-        List<JiraIssue> rows = java.util.stream.IntStream.rangeClosed(1, 40)
-                .mapToObj(n -> issue("ABC-" + n, "ABC")).toList();
-        jira.searchAnswer = new IssueSearchResult(rows);
+    void searchAsksForOnePageAtTheGivenOffsetAndPassesTheNextOffsetOn() {
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1), 75);
 
-        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, ""));
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", null, "", 50));
 
-        assertThat(result.issues()).as("the tool cuts the list after the policy has judged the hits").hasSize(40);
-        assertThat(result.hasMore()).as("the number of matches is not a signal: some may be hidden by the policy").isFalse();
-        assertThat(jira.searchSizes).containsExactly(JiraService.SEARCH_FETCH_SIZE);
+        assertThat(jira.searchSizes).containsExactly(JiraService.PAGE_SIZE);
+        assertThat(jira.searches.get(0).startAt()).isEqualTo(50);
+        assertThat(result.nextStartAt()).isEqualTo(75);
     }
 
     @Test
-    void aTypeFilterOnAFullPageOfRowsSaysTheResultMayBeIncomplete() {
-        List<JiraIssue> rows = java.util.stream.IntStream.rangeClosed(1, JiraService.SEARCH_FETCH_SIZE)
-                .mapToObj(n -> issue("ABC-" + n, "ABC")).toList();
-        jira.searchAnswer = new IssueSearchResult(rows);
+    void aPageCutByTheTypeFilterKeepsTheNextOffsetOfJiraNotOfTheRowsLeft() {
+        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, ABC_1), 25);
 
-        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "Bug", ""));
+        IssueSearchResult result = service.searchIssues(new IssueSearch("ABC", "Bug", "", 0));
 
         assertThat(result.issues()).isEmpty();
-        assertThat(result.hasMore()).as("older Bugs may exist below the 100 rows Jira was asked for").isTrue();
-    }
-
-    @Test
-    void aCompleteAnswerIsNotMarkedAsPossiblyIncomplete() {
-        jira.searchAnswer = new IssueSearchResult(List.of(ABC_1, issueOfType("ABC-2", "Bug")));
-
-        assertThat(service.searchIssues(new IssueSearch("ABC", "Bug", "")).hasMore()).isFalse();
-        assertThat(service.searchIssues(new IssueSearch("ABC", null, "")).hasMore()).isFalse();
+        assertThat(result.nextStartAt()).as("older Bugs may be on the next page").isEqualTo(25);
     }
 
     @Test
@@ -170,6 +168,64 @@ class JiraServiceTest {
         assertThat(inside).contains("!https://evil.test/p.png!");
     }
 
+    @Test
+    void createdIssueDescriptionAndUpdatedDescriptionGoToJiraAsLiteralText() {
+        String key = service.createIssue(new NewIssue("ABC", "Task", "Title", "see !https://evil.test/p.png!", List.of("a"), null, null));
+        service.updateIssue("ABC-1", new IssueChanges(null, "[~admin]", null, null));
+
+        assertThat(key).isEqualTo("ABC-901");
+        assertThat(jira.created.get(0).description()).isEqualTo("{noformat}\nsee !https://evil.test/p.png!\n{noformat}");
+        assertThat(jira.created.get(0).summary()).as("the summary is a single-line field, not markup").isEqualTo("Title");
+        assertThat(jira.changes.get(0).description()).isEqualTo("{noformat}\n[~admin]\n{noformat}");
+    }
+
+    @Test
+    void anAbsentDescriptionStaysAbsent() {
+        service.createIssue(new NewIssue("ABC", "Task", "Title", null, null, null, null));
+        service.updateIssue("ABC-1", new IssueChanges("New", null, List.of(), null));
+
+        assertThat(jira.created.get(0).description()).isNull();
+        assertThat(jira.changes.get(0).description()).isNull();
+        assertThat(jira.changes.get(0).labels()).isEmpty();
+    }
+
+    @Test
+    void writesToIssuesJiraDoesNotShowAreNotFoundOrDenied() {
+        assertThatThrownBy(() -> service.createIssue(new NewIssue("HR", "Task", "x", null, null, null, null)))
+                .isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.updateIssue("ABC-2", new IssueChanges("x", null, null, null)))
+                .isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.assign("ABC-2", "alice")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.linkIssues("Blocks", "ABC-1", "ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.addWorklog("ABC-2", "1h", null)).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.editComment("ABC-2", "1", "x")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.listComments("ABC-2", 0)).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.listWorklogs("ABC-2", 0)).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.listAttachments("ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.listTransitions("ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.project("HR")).isInstanceOf(NotFoundOrDeniedException.class);
+        assertThatThrownBy(() -> service.assignableUsers("HR", "al")).isInstanceOf(NotFoundOrDeniedException.class);
+    }
+
+    @Test
+    void anEditedCommentAndAWorklogCommentAreLiteralToo() {
+        service.editComment("ABC-1", "7", "!x!");
+        service.addWorklog("ABC-1", "1h", "[~admin]");
+
+        assertThat(jira.commentBody).isEqualTo("{noformat}\n!x!\n{noformat}");
+        assertThat(jira.worklogComment).isEqualTo("{noformat}\n[~admin]\n{noformat}");
+        service.addWorklog("ABC-1", "2h", null);
+        assertThat(jira.worklogComment).isNull();
+    }
+
+    @Test
+    void listsAskForOnePageAtTheOffset() {
+        service.listComments("ABC-1", 25);
+        service.listWorklogs("ABC-1", 50);
+
+        assertThat(jira.pageRequests).containsExactly("comments:25:25", "worklogs:50:25");
+    }
+
     private static JiraIssue issueOfType(String key, String type) {
         return new JiraIssue(key, "ABC", type, "Open", null, "2026-10-20T12:00:00.000+0000", "Summary of " + key, null, null);
     }
@@ -190,8 +246,12 @@ class JiraServiceTest {
         final List<String> transitioned = new ArrayList<>();
         final List<String> commented = new ArrayList<>();
         String commentBody;
+        String worklogComment;
+        final List<NewIssue> created = new ArrayList<>();
+        final List<IssueChanges> changes = new ArrayList<>();
+        final List<String> pageRequests = new ArrayList<>();
         List<IssueTransition> available = List.of(new IssueTransition("21", "In Progress", "In Progress"));
-        IssueSearchResult searchAnswer = new IssueSearchResult(List.of());
+        IssueSearchResult searchAnswer = new IssueSearchResult(List.of(), null);
 
         @Override
         public Optional<JiraProject> findProject(String projectKey) {
@@ -235,6 +295,88 @@ class JiraServiceTest {
         public boolean deleteIssue(String issueKey) {
             deleted.add(issueKey);
             return visible.contains(issueKey);
+        }
+
+        @Override
+        public ServerInfo serverInfo() {
+            return new ServerInfo("11.3.0", "Server");
+        }
+
+        @Override
+        public Optional<ProjectDetails> projectDetails(String projectKey) {
+            return "ABC".equals(projectKey)
+                    ? Optional.of(new ProjectDetails("ABC", "Alpha", "", List.of("Task"), List.of(), List.of()))
+                    : Optional.empty();
+        }
+
+        @Override
+        public List<ProjectSummary> listProjects() {
+            return List.of(new ProjectSummary("ABC", "Alpha", ""));
+        }
+
+        @Override
+        public Optional<List<JiraUser>> assignableUsers(String projectKey, String query, int maxResults) {
+            return "ABC".equals(projectKey) ? Optional.of(List.of(new JiraUser("alice", "Alice", true))) : Optional.empty();
+        }
+
+        @Override
+        public Optional<CommentPage> listComments(String issueKey, int startAt, int maxResults) {
+            pageRequests.add("comments:" + startAt + ":" + maxResults);
+            return visible.contains(issueKey) ? Optional.of(new CommentPage(List.of(), null)) : Optional.empty();
+        }
+
+        @Override
+        public Optional<JiraComment> editComment(String issueKey, String commentId, String body) {
+            if (!visible.contains(issueKey)) {
+                return Optional.empty();
+            }
+            commentBody = body;
+            return Optional.of(new JiraComment(issueKey, commentId, "2026-10-27T10:00:00.000+0000"));
+        }
+
+        @Override
+        public Optional<String> createIssue(NewIssue issue) {
+            if (!"ABC".equals(issue.projectKey())) {
+                return Optional.empty();
+            }
+            created.add(issue);
+            return Optional.of("ABC-901");
+        }
+
+        @Override
+        public boolean updateIssue(String issueKey, IssueChanges issueChanges) {
+            changes.add(issueChanges);
+            return visible.contains(issueKey);
+        }
+
+        @Override
+        public boolean assign(String issueKey, String username) {
+            return visible.contains(issueKey);
+        }
+
+        @Override
+        public boolean linkIssues(String linkType, String inwardIssueKey, String outwardIssueKey) {
+            return visible.contains(inwardIssueKey) && visible.contains(outwardIssueKey);
+        }
+
+        @Override
+        public Optional<JiraWorklog> addWorklog(String issueKey, String timeSpent, String comment) {
+            if (!visible.contains(issueKey)) {
+                return Optional.empty();
+            }
+            worklogComment = comment;
+            return Optional.of(new JiraWorklog("1", "alice", "2026-10-27T10:00:00.000+0000", timeSpent, comment));
+        }
+
+        @Override
+        public Optional<WorklogPage> listWorklogs(String issueKey, int startAt, int maxResults) {
+            pageRequests.add("worklogs:" + startAt + ":" + maxResults);
+            return visible.contains(issueKey) ? Optional.of(new WorklogPage(List.of(), null)) : Optional.empty();
+        }
+
+        @Override
+        public Optional<List<JiraAttachment>> listAttachments(String issueKey) {
+            return visible.contains(issueKey) ? Optional.of(List.of()) : Optional.empty();
         }
     }
 }

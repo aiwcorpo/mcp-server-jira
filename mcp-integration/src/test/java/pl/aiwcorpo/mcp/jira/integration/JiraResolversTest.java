@@ -9,13 +9,8 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import pl.aiwcorpo.mcp.cedar.entities.ResolvedResource;
-import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
-import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
-import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
-import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
-import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 
 class JiraResolversTest {
 
@@ -68,7 +63,7 @@ class JiraResolversTest {
         assertThat(project.attributes()).containsEntry("category", "Restricted");
     }
 
-    private static final class FakeJira implements JiraResourcePort {
+    private static final class FakeJira extends UnsupportedJira {
 
         final List<String> projectLookups = new ArrayList<>();
 
@@ -96,31 +91,6 @@ class JiraResolversTest {
 
         private static JiraIssue issue(String key, String project) {
             return new JiraIssue(key, project, "Task", "To Do", null, null, "s", null, null);
-        }
-
-        @Override
-        public IssueSearchResult search(IssueSearch search, int maxResults) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<JiraComment> addComment(String issueKey, String body) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<List<IssueTransition>> transitions(String issueKey) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean transition(String issueKey, String transitionId) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean deleteIssue(String issueKey) {
-            throw new UnsupportedOperationException();
         }
     }
 }

@@ -1,0 +1,4 @@
+[{"self":"https://jira.corp.test/rest/api/2/project/10000","id":"10000","key":"ABC","name":"Alpha Team","projectTypeKey":"software"},
+ {"self":"https://jira.corp.test/rest/api/2/project/10001","id":"10001","key":"DEF","name":"Delta Team","projectTypeKey":"software"},
+ {"self":"https://jira.corp.test/rest/api/2/project/10002","id":"10002","key":"HR","name":"Human Resources","projectTypeKey":"software",
+  "projectCategory":{"id":"10001","name":"Restricted","description":"HR and other restricted data"}}]

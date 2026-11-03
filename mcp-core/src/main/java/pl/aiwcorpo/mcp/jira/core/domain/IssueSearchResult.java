@@ -3,17 +3,13 @@ package pl.aiwcorpo.mcp.jira.core.domain;
 import java.util.List;
 
 /**
- * The first page of a search, newest update first. There is no total: it would count issues the result filter
- * removes afterwards. {@code hasMore} is true when the server may have left matching issues out (more matches than
- * the page holds, or an issue type filter applied to a full page of rows that could not be asked for it).
+ * One page of a search. There is no total: it would count issues the result filter removes afterwards.
+ * {@code nextStartAt} is where Jira's next page begins, {@code null} on the last page; a page may hold fewer rows
+ * than Jira returned, because rows of another project or issue type are dropped.
  */
-public record IssueSearchResult(List<JiraIssue> issues, boolean hasMore) {
+public record IssueSearchResult(List<JiraIssue> issues, Integer nextStartAt) {
 
     public IssueSearchResult {
         issues = List.copyOf(issues);
-    }
-
-    public IssueSearchResult(List<JiraIssue> issues) {
-        this(issues, false);
     }
 }

@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
+import pl.aiwcorpo.mcp.jira.core.domain.BackendDegradedException;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.RejectedByJiraException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
@@ -27,6 +28,10 @@ public class JiraToolErrors implements ToolErrorMapping {
             return Optional.of(new SafeError(ToolErrorCode.NOT_FOUND_OR_DENIED.code(),
                     ToolErrorCode.NOT_FOUND_OR_DENIED_MESSAGE));
         }
+        if (ex instanceof BackendDegradedException) {
+            return Optional.of(new SafeError(ToolErrorCode.UPSTREAM_UNAVAILABLE.code(),
+                    "This Jira version is not supported for changes; reading still works. Nothing was changed."));
+        }
         if (ex instanceof TransitionNotAvailableException) {
             return Optional.of(new SafeError(ToolErrorCode.INVALID_ARGUMENT.code(),
                     "The issue has no such transition in its current status."));
@@ -48,6 +53,12 @@ public class JiraToolErrors implements ToolErrorMapping {
                 case TRANSITION -> "Jira refused the transition; it may need fields this tool does not set.";
                 case COMMENT -> "Jira refused the comment body.";
                 case DELETE -> "Jira refused the deletion; the issue may have subtasks.";
+                case CREATE -> "Jira refused the issue; the project may require fields this tool does not set, "
+                        + "or the type, priority, assignee or a label is unknown to it.";
+                case UPDATE -> "Jira refused the change; a field may not be on the screen of the issue or the value is unknown to Jira.";
+                case ASSIGN -> "Jira refused the assignment; the user may not be assignable in this project.";
+                case LINK -> "Jira refused the link; the link type may not exist or linking may be switched off.";
+                case WORKLOG -> "Jira refused the work log entry; check the time format and that work logging is on.";
             }));
         }
         return Optional.empty();

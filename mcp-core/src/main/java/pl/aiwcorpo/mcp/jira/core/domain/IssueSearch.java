@@ -6,9 +6,10 @@ package pl.aiwcorpo.mcp.jira.core.domain;
  *
  * @param projectKey the one project the search is limited to; the scope of the query (it is in the JQL as the project
  *                   clause); the use case also checks it on the rows
- * @param issueType  the issue type the rows are limited to, {@code null} for any; applied to the rows for the same
- *                   reason (the type is not a field the contracts allow in a condition)
+ * @param issueType  the issue type the rows are limited to, {@code null} for any; applied to the rows because the type
+ *                   is not a field the contracts allow in a condition
  * @param jql        the complete query, built by the server
+ * @param startAt    offset of the page in Jira's own paging, 0 for the first
  */
-public record IssueSearch(String projectKey, String issueType, String jql) {
+public record IssueSearch(String projectKey, String issueType, String jql, int startAt) {
 }

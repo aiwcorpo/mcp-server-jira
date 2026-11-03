@@ -3,6 +3,7 @@ package pl.aiwcorpo.mcp.jira.app;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
@@ -43,19 +44,26 @@ import java.util.regex.Pattern;
  */
 final class StubBackend {
 
+    /** Version of the recorded-shape responses in {@code fixtures/jira-dc-<version>/}; the default is the newest. */
+    static final String DEFAULT_VERSION = "11.3";
+
     static final String EXPIRED_CREDENTIAL = "Bearer expired-pat-of-jkowalski";
     static final String BODY_MARKER = "SECRETBODYTOKEN123";
     static final long SLOW_MILLIS = 4_000;
     static final int HUGE_BYTES = 256 * 1024;
 
     /** Keys of the 25 visible hits of a search for "many hits". */
-    private static final Pattern MANY_HITS_KEY = Pattern.compile("ABC-1[0-2][0-9]");
+    private static final Pattern MANY_HITS_KEY = Pattern.compile("ABC-1[0-5][0-9]");
     private static final Pattern PROJECT = Pattern.compile("/rest/api/2/project/([^/]+)");
-    private static final Pattern ISSUE = Pattern.compile("/rest/api/2/issue/([^/]+)(/comment|/transitions)?");
+    private static final Pattern ISSUE = Pattern.compile("/rest/api/2/issue/([^/]+)(/comment(?:/[0-9]+)?|/transitions|/assignee|/worklog)?");
 
     /** One request as Jira saw it. */
     record Request(String method, String path, String query, String authorization, String body) {
     }
+
+    private volatile String fixtureVersion = DEFAULT_VERSION;
+    private volatile int serverInfoStatus = 0;
+    private volatile String serverInfoBody = null;
 
     private final HttpServer server;
     private final HttpServer elsewhere;
@@ -127,6 +135,35 @@ final class StubBackend {
         elsewhereHits.clear();
     }
 
+    /** Serves the fixtures of another Jira version; {@link #useDefaultFixtures()} undoes it. */
+    void useFixtures(String version) {
+        this.fixtureVersion = version;
+    }
+
+    void useDefaultFixtures() {
+        this.fixtureVersion = DEFAULT_VERSION;
+        this.serverInfoStatus = 0;
+        this.serverInfoBody = null;
+    }
+
+    /** Makes {@code serverInfo} answer this instead of the fixture (a version nobody tested, Cloud, a login page). */
+    void serverInfoAnswers(int status, String body) {
+        this.serverInfoStatus = status;
+        this.serverInfoBody = body;
+    }
+
+    String fixture(String name) {
+        String resource = "/fixtures/jira-dc-" + fixtureVersion + "/" + name;
+        try (InputStream in = StubBackend.class.getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IllegalStateException("missing fixture " + resource);
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            throw new UncheckedIOException(ex);
+        }
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         String authorization = exchange.getRequestHeaders().getFirst("Authorization");
         String method = exchange.getRequestMethod();
@@ -134,6 +171,11 @@ final class StubBackend {
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         requests.add(new Request(method, path, exchange.getRequestURI().getRawQuery(), String.valueOf(authorization),
                 body));
+        if ("GET".equals(method) && "/rest/api/2/serverInfo".equals(path)) {
+            respond(exchange, serverInfoBody == null ? 200 : serverInfoStatus,
+                    serverInfoBody == null ? fixture("serverInfo.json") : serverInfoBody);
+            return;
+        }
         if (EXPIRED_CREDENTIAL.equals(authorization)) {
             respond(exchange, 401, """
                     {"errorMessages":["You are not authenticated. Authentication required to perform this operation."],
@@ -144,6 +186,14 @@ final class StubBackend {
         Matcher issue = ISSUE.matcher(path);
         if ("GET".equals(method) && project.matches()) {
             project(exchange, project.group(1));
+        } else if ("GET".equals(method) && "/rest/api/2/project".equals(path)) {
+            respond(exchange, 200, fixture("projects.json"));
+        } else if ("GET".equals(method) && "/rest/api/2/user/assignable/search".equals(path)) {
+            assignableUsers(exchange, exchange.getRequestURI().getRawQuery());
+        } else if ("POST".equals(method) && "/rest/api/2/issue".equals(path)) {
+            createIssue(exchange, body);
+        } else if ("POST".equals(method) && "/rest/api/2/issueLink".equals(path)) {
+            linkIssues(exchange, body);
         } else if ("POST".equals(method) && "/rest/api/2/search".equals(path)) {
             search(exchange, body);
         } else if (issue.matches()) {
@@ -155,9 +205,7 @@ final class StubBackend {
 
     private void project(HttpExchange exchange, String key) throws IOException {
         switch (key) {
-            case "ABC" -> respond(exchange, 200, """
-                    {"self":"http://jira.internal:8080/rest/api/2/project/10000","id":"10000","key":"ABC",
-                     "name":"Alpha Team","projectTypeKey":"software"}""");
+            case "ABC" -> respond(exchange, 200, fixture("project-abc.json"));
             case "DEF" -> respond(exchange, 200, """
                     {"self":"http://jira.internal:8080/rest/api/2/project/10001","id":"10001","key":"DEF",
                      "name":"Delta Team","projectTypeKey":"software"}""");
@@ -178,7 +226,7 @@ final class StubBackend {
             return;
         }
         if (body.contains("many hits")) {
-            respond(exchange, 200, manyHits(body.contains("one hidden"), body.contains("visible extra")));
+            respond(exchange, 200, manyHits(body));
             return;
         }
         String stale = body.contains("stale index") ? STALE_HITS : "";
@@ -193,20 +241,36 @@ final class StubBackend {
                 ]}""".formatted(ISSUE_ABC_1, stale));
     }
 
-    /** 25 visible issues, plus ABC-30 (listed under ABC by the index, in the restricted project HR for Jira) on request. */
-    private static String manyHits(boolean withHidden, boolean withVisibleExtra) {
+    /**
+     * A pool of 60 issues (ABC-100 to ABC-159) paged by the {@code startAt} and {@code maxResults} of the request, the way
+     * Jira pages. With "one hidden" the first row of the first page is ABC-30: listed under ABC by the index, in the
+     * restricted project HR for Jira.
+     */
+    private static String manyHits(String request) {
+        int startAt = intOf(request, "startAt", 0);
+        int maxResults = intOf(request, "maxResults", 50);
+        List<String> pool = new java.util.ArrayList<>();
+        if (request.contains("one hidden")) {
+            pool.add("ABC-30");
+        }
+        for (int number = 100; number < 160; number++) {
+            pool.add("ABC-" + number);
+        }
         StringBuilder rows = new StringBuilder();
-        for (int number = 100; number < 125; number++) {
-            rows.append(hit("ABC-" + number)).append(",\n");
+        int end = Math.min(pool.size(), startAt + maxResults);
+        for (int i = startAt; i < end; i++) {
+            rows.append(hit(pool.get(i))).append(",\n");
         }
-        if (withVisibleExtra) {
-            rows.append(hit("ABC-2")).append(",\n");
+        if (rows.length() > 0) {
+            rows.setLength(rows.length() - 2);
         }
-        if (withHidden) {
-            rows.append(hit("ABC-30")).append(",\n");
-        }
-        rows.setLength(rows.length() - 2);
-        return "{\"startAt\":0,\"maxResults\":100,\"total\":%d,\"issues\":[%s]}".formatted(withHidden ? 26 : 25, rows);
+        return "{\"startAt\":%d,\"maxResults\":%d,\"total\":%d,\"issues\":[%s]}".formatted(startAt, maxResults,
+                pool.size(), rows);
+    }
+
+    private static int intOf(String json, String field, int fallback) {
+        Matcher matcher = Pattern.compile("\"" + field + "\":\\s*([0-9]+)").matcher(json);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : fallback;
     }
 
     private static String hit(String key) {
@@ -220,6 +284,16 @@ final class StubBackend {
         boolean write = "POST".equals(method);
         if ("DELETE".equals(method)) {
             deleteIssue(exchange, key, sub);
+        } else if (!"GET".equals(method) && !"POST".equals(method) || writesToSubresource(sub, method)) {
+            changeIssue(exchange, method, key, sub, body);
+        } else if (sub == null && "GET".equals(method) && ("ABC-41".equals(key) || "ABC-42".equals(key))
+                && exchange.getRequestURI().getRawQuery().contains("fields=attachment")) {
+            respond(exchange, 200, attachmentsOf(key));
+        } else if ("/comment".equals(sub) && "GET".equals(method) && ("ABC-1".equals(key) || "ABC-40".equals(key))) {
+            respond(exchange, 200, "ABC-1".equals(key) ? fixture("comments-abc-1.json")
+                    : manyComments(exchange.getRequestURI().getRawQuery()));
+        } else if ("/worklog".equals(sub) && "GET".equals(method) && "ABC-1".equals(key)) {
+            respond(exchange, 200, fixture("worklogs-abc-1.json"));
         } else if ("ABC-403".equals(key)) {
             respond(exchange, 403, "{\"errorMessages\":[\"You do not have the permission to see the specified issue.\"]}");
         } else if ("ABC-500".equals(key)) {
@@ -291,6 +365,128 @@ final class StubBackend {
         }
     }
 
+    /** POST to a sub-resource that creates something: the comment and the work log of ABC-1 and DEF-5. */
+    private static boolean writesToSubresource(String sub, String method) {
+        return "POST".equals(method) && "/worklog".equals(sub);
+    }
+
+    /** PUT and POST changes: issue fields, assignee, comment text, work log. */
+    private void changeIssue(HttpExchange exchange, String method, String key, String sub, String body)
+            throws IOException {
+        boolean known = "ABC-1".equals(key) || "DEF-5".equals(key);
+        if (!known) {
+            respond(exchange, 404, "{\"errorMessages\":[\"Issue Does Not Exist\"],\"errors\":{}}");
+        } else if ("/worklog".equals(sub)) {
+            if (body.contains("\"timeSpent\":\"0m\"")) {
+                respond(exchange, 400, "{\"errorMessages\":[\"Invalid time.\"],\"errors\":{}}");
+            } else {
+                respond(exchange, 201, """
+                        {"self":"https://jira.corp.test/rest/api/2/issue/10100/worklog/10701","id":"10701",
+                         "author":{"name":"jkowalski","emailAddress":"jkowalski@corp.test"},
+                         "started":"2026-11-03T08:00:00.000+0000","timeSpent":"1h","comment":"(echo)"}""");
+            }
+        } else if ("/assignee".equals(sub)) {
+            if (body.contains("ghost")) {
+                respond(exchange, 400, "{\"errorMessages\":[\"User 'ghost' does not exist.\"],\"errors\":{}}");
+            } else {
+                noContent(exchange);
+            }
+        } else if (sub != null && sub.startsWith("/comment/")) {
+            if (sub.endsWith("/10500")) {
+                respond(exchange, 200, """
+                        {"self":"https://jira.corp.test/rest/api/2/issue/10100/comment/10500","id":"10500",
+                         "author":{"name":"jkowalski"},"body":"(echo)",
+                         "created":"2026-10-27T10:00:00.000+0000","updated":"2026-11-03T10:00:00.000+0000"}""");
+            } else {
+                respond(exchange, 404, "{\"errorMessages\":[\"Can not find comment.\"],\"errors\":{}}");
+            }
+        } else if (sub == null && "PUT".equals(method)) {
+            if (body.contains("\"Nope\"")) {
+                respond(exchange, 400, "{\"errorMessages\":[],\"errors\":{\"priority\":\"Priority is not valid.\"}}");
+            } else {
+                noContent(exchange);
+            }
+        } else {
+            respond(exchange, 404, "{\"errorMessages\":[\"null for uri\"],\"errors\":{}}");
+        }
+    }
+
+    private static void noContent(HttpExchange exchange) throws IOException {
+        exchange.sendResponseHeaders(204, -1);
+        exchange.close();
+    }
+
+    private void assignableUsers(HttpExchange exchange, String query) throws IOException {
+        Matcher project = Pattern.compile("project=([A-Z0-9_]+)").matcher(query);
+        Matcher name = Pattern.compile("username=([^&]*)").matcher(query);
+        String key = project.find() ? project.group(1) : "";
+        if (!"ABC".equals(key) && !"DEF".equals(key)) {
+            respond(exchange, "SEC".equals(key) ? 403 : 404, "{\"errorMessages\":[\"No project.\"],\"errors\":{}}");
+            return;
+        }
+        String wanted = name.find() ? java.net.URLDecoder.decode(name.group(1), StandardCharsets.UTF_8) : "";
+        StringBuilder matching = new StringBuilder("[");
+        for (tools.jackson.databind.JsonNode user : JSON_FIXTURES.readTree(fixture("users-abc.json"))) {
+            if (user.get("name").asString().contains(wanted)) {
+                matching.append(matching.length() > 1 ? "," : "").append(user);
+            }
+        }
+        respond(exchange, 200, matching.append("]").toString());
+    }
+
+    private void createIssue(HttpExchange exchange, String body) throws IOException {
+        tools.jackson.databind.JsonNode fields = JSON_FIXTURES.readTree(body).path("fields");
+        String project = fields.path("project").path("key").asString();
+        if ("Nope".equals(fields.path("issuetype").path("name").asString())) {
+            respond(exchange, 400, "{\"errorMessages\":[],\"errors\":{\"issuetype\":\"valid issue type is required\"}}");
+        } else {
+            respond(exchange, 201, "{\"id\":\"10900\",\"key\":\"" + project + "-901\",\"self\":\"https://jira.corp.test/rest/api/2/issue/10900\"}");
+        }
+    }
+
+    private void linkIssues(HttpExchange exchange, String body) throws IOException {
+        if ("Nope".equals(JSON_FIXTURES.readTree(body).path("type").path("name").asString())) {
+            respond(exchange, 404, "{\"errorMessages\":[\"No issue link type with name 'Nope' found.\"],\"errors\":{}}");
+        } else {
+            exchange.sendResponseHeaders(201, -1);
+            exchange.close();
+        }
+    }
+
+    /** 30 comments for ABC-40, paged by the query string. */
+    private static String manyComments(String query) {
+        int startAt = intOf("\"startAt\":" + param(query, "startAt"), "startAt", 0);
+        int maxResults = intOf("\"maxResults\":" + param(query, "maxResults"), "maxResults", 25);
+        StringBuilder rows = new StringBuilder();
+        int end = Math.min(30, startAt + maxResults);
+        for (int i = startAt; i < end; i++) {
+            rows.append(i > startAt ? "," : "").append("""
+                    {"id":"%d","author":{"name":"alice"},"body":"Comment %d","created":"2026-10-01T09:00:00.000+0000",
+                     "updated":"2026-10-01T09:00:00.000+0000"}""".formatted(20000 + i, i));
+        }
+        return "{\"startAt\":%d,\"maxResults\":%d,\"total\":30,\"comments\":[%s]}".formatted(startAt, maxResults, rows);
+    }
+
+    private static String param(String query, String name) {
+        Matcher matcher = Pattern.compile(name + "=([0-9]+)").matcher(query == null ? "" : query);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    /** ABC-41: the two attachments of the fixture; ABC-42: 55 of them, more than the tool lists. */
+    private String attachmentsOf(String key) {
+        if ("ABC-41".equals(key)) {
+            return "{\"key\":\"ABC-41\",\"fields\":{\"attachment\":" + fixture("attachments-abc-1.json") + "}}";
+        }
+        StringBuilder rows = new StringBuilder();
+        for (int i = 0; i < 55; i++) {
+            rows.append(i > 0 ? "," : "").append("{\"id\":\"" + (30000 + i) + "\",\"filename\":\"f" + i
+                    + ".txt\",\"size\":10,\"mimeType\":\"text/plain\",\"created\":\"2026-10-01T09:00:00.000+0000\"}");
+        }
+        return "{\"key\":\"ABC-42\",\"fields\":{\"attachment\":[" + rows + "]}}";
+    }
+
+    private static final tools.jackson.databind.json.JsonMapper JSON_FIXTURES = tools.jackson.databind.json.JsonMapper.builder().build();
+
     /** Deletions: the issue answers 204, or fails the way the key says (the GET of these keys is a plain issue). */
     private void deleteIssue(HttpExchange exchange, String key, String sub) throws IOException {
         if (sub != null) {
@@ -329,7 +525,7 @@ final class StubBackend {
 
     /** Issues that read like ABC-1 under their own key; what differs is how the writes to them answer. */
     private static final java.util.Set<String> PLAIN_ISSUES = java.util.Set.of("ABC-2", "ABC-7", "ABC-8", "ABC-9", "ABC-15", "ABC-17",
-            "ABC-20", "ABC-21", "ABC-22", "ABC-24", "ABC-25", "ABC-26");
+            "ABC-20", "ABC-40", "ABC-41", "ABC-42", "ABC-21", "ABC-22", "ABC-24", "ABC-25", "ABC-26");
 
     /** Extra hits of a search for "stale index": issues the index still lists under ABC, one moved to HR, one failing. */
     private static final String STALE_HITS = """
