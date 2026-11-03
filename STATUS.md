@@ -192,7 +192,7 @@ nie commitowane stąd).
 
 Infrastruktura `mcp-platform-dev` działała (7 kontenerów, bez restartu), porty 18000, 18100, 18445, 18446 wolne.
 Gateway d4fbf98, broker 5a5dbb4, mcp-jira f0da7e1 na 3.0.0-alpha-4 (jar z `./mvnw verify`). Logi:
-`<scratchpad>/jira-demo/`.
+`<katalog roboczy sesji>/jira-demo/`.
 
 ```bash
 (cd ../mcp-credential-broker && MCP_GATEWAY_JWKS_URI=https://localhost:18445/.well-known/jwks.json \
@@ -231,7 +231,7 @@ Powtórka na starterze 3.0.0-alpha-5 (ten sam dzień, te same komendy; mcp-jira 
 active profile set", mTLS z certyfikatem `mcp-jira` i JWKS gateway'a): `tools/list` z czterema narzędziami,
 `get_issue ABC-1` z mocka, audyt `01a17e27-692c-7dce-9dc7-1b8894d235a4` -> policy_decision allow,
 credential_resolve ok, tool_call ok (server), tool_call allow (gateway), missing: none; `alice-pat` w logach 0, 0,
-0. Logi: `<scratchpad>/jira-demo-a5/`.
+0. Logi: `<katalog roboczy sesji>/jira-demo-a5/`.
 
 ## Odstępstwa
 
@@ -407,3 +407,16 @@ tag obrazu `mcp-server-jira:m5-<sha7>`, `ManifestTest` porównuje hash (gdy list
 - Dowód: `ci/run.sh verify` 149:efd0df4 przypadków uruchomionych, `ci/run.sh bogus` daje 2, obraz `mcp-server-jira:m5-efd0df4` zbudowany z `ci/run.sh image`.
 
 Poprawka po przebiegu na runnerze (2026-10-31): `ManifestExport` przeniesiony do `mcp-app/src/main` (wzór szablonu, bez startu serwera i bez profilu dev, który starter w kontenerze odrzuca); `McpToolsConfiguration.mcpTools` jest publiczne. `ManifestArtifactIT` nadal porównuje plik z działającym serwerem. Job GitLaba `image` nazwany `build-image`. Dowód: `ci/run.sh verify` w `maven:3.9.12-eclipse-temurin-25` (offline, z INVOCATION_ID i KUBERNETES_SERVICE_HOST): 149 przypadków, 0 błędów. Pozycje o `ManifestExport` z katalogu testów powyżej są nieaktualne.
+
+
+## M6, etap 3: pełny serwer Data Center (2026-11-03)
+
+- Starter 3.0.0-beta-13, kontrakty 6.2.1 przez BOM. `MCP_PAGING_CURSOR_KEY` dodany do konfiguracji i szablonu środowiska.
+- Katalog: 19 narzędzi (9 odczytów, 9 `UPDATE`, 1 `DESTRUCTIVE`); tabela w README. Wszystkie `@ResourceRef` na `Jira::Issue` albo `Jira::Project`; `link_issues` ma dwa.
+- Wersje: `JiraCapabilityProbe` (`serverInfo`, bez poświadczenia) + `JiraWriteGate`. Wspierane DC 9.12 do 11.x; `degraded` (starsza, 12+, Cloud) = tylko odczyty.
+  Jedyna ścieżka wyszukiwania to `POST /rest/api/2/search` z `startAt`; nie potwierdzono na instancji, że DC 10.x i 11.x go zachowuje (dokumentacja "nowego Search API" 10.4 dotyczy Javowego API aplikacji).
+- `search_issues`: `PagedResult` z kursorem, `order_by`, `order`, filtr `summary`; `PageFiller` po filtrze polityki (też `list_projects`). Zmiana kształtu wyniku (bez `project`, `issues`, `hasMore`).
+- Przegląd bezpieczeństwa koordynatora: `edit_comment` sprawdza przynależność komentarza do zgłoszenia (id zgłoszenia z `self` komentarza) przed zapisem; pozostałe narzędzia nie biorą identyfikatora podrzędnego.
+- Testy: 167 w modułach (nowe: `ReadToolsTest`, `WriteToolsTest`, `VersionFixturesTest`, `DegradedModeTest`, `JiraCapabilityProbeTest`, `JiraWriteGateTest`); fixture `jira-dc-9.12` i `jira-dc-11.3` napisane z dokumentowanych kształtów, nie nagrane.
+- Propozycje kontraktowe (bez implementacji): CC-210 (pola JQL), CC-211 (tablice i sprinty), CC-212 (załączniki), CC-213 (Cloud, Basic). Wpisy do `CONTRACT_CHANGES.md` nie zostały dopisane przez tego agenta (zapis w cudzym repozytorium został zablokowany); tekst w katalogu roboczym koordynatora.
+- Porządki: LICENSE, NOTICE, SECURITY.md, CHANGELOG.md, CONTRIBUTING.md, licencja w `pom.xml`, ścieżki hosta usunięte z README i STATUS. Nie zrobione: wersja inna niż `0.1.0-SNAPSHOT`, `distributionManagement`, SBOM, obraz na ghcr.io (publikacja wymaga zgody).

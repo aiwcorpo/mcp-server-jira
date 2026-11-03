@@ -24,6 +24,14 @@
         <relativePath/>
     </parent>
 
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <modules>
         <module>mcp-core</module>
         <module>mcp-application</module>
