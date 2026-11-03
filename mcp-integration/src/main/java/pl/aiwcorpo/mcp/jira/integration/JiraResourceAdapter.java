@@ -1,6 +1,11 @@
 package pl.aiwcorpo.mcp.jira.integration;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.databind.json.JsonMapper;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
@@ -41,6 +46,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
 import pl.aiwcorpo.mcp.jira.core.domain.RejectedByJiraException;
 import pl.aiwcorpo.mcp.jira.core.domain.RejectedByJiraException.Operation;
@@ -78,6 +84,11 @@ public class JiraResourceAdapter implements JiraResourcePort {
     private static final java.util.regex.Pattern COMMENT_SELF =
             java.util.regex.Pattern.compile("/issue/([0-9]+)/comment/([0-9]+)$");
 
+    private static final JsonMapper PROJECT_JSON = JsonMapper.builder().build();
+    private static final java.util.regex.Pattern ID = java.util.regex.Pattern.compile("[0-9]{1,18}");
+    private static final java.util.regex.Pattern ISSUE_KEY =
+            java.util.regex.Pattern.compile("[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}");
+
     private static final String DEV_PROFILE = "dev";
     private static final Logger LOG = LoggerFactory.getLogger(JiraResourceAdapter.class);
 
@@ -90,21 +101,25 @@ public class JiraResourceAdapter implements JiraResourcePort {
                         environment.matchesProfiles(DEV_PROFILE) || properties.allowPlainHttp()))
                 .requestFactory(requestFactory(properties, sslBundles))
                 .requestInterceptor(new BoundedBodyInterceptor(properties.maxResponseSize().toBytes()))
-                .defaultStatusHandler(status -> status.isError() || status.is3xxRedirection(), (request, response) -> {
-                    // Status only: the body and headers of a failed call may echo the credential or carry backend
-                    // detail, and the exception message ends up in the starter's tool_failed log line.
-                    HttpStatusCode status = response.getStatusCode();
-                    if (status.is3xxRedirection()) {
-                        // Redirects are not followed (the credential must not go elsewhere) and an empty body
-                        // must not read as "no issue" or as a transition that happened: an SSO login page
-                        // would turn into not_found_or_denied or into a false success.
-                        throw new BackendResponseException("redirect " + status.value());
-                    }
-                    throw status.is4xxClientError()
-                            ? HttpClientErrorException.create(status, "", HttpHeaders.EMPTY, new byte[0], null)
-                            : HttpServerErrorException.create(status, "", HttpHeaders.EMPTY, new byte[0], null);
-                })
+                .defaultStatusHandler(status -> status.isError() || status.is3xxRedirection(),
+                        (request, response) -> failFor(response.getStatusCode()))
                 .build();
+    }
+
+    /**
+     * Status only: the body and headers of a failed call may echo the credential or carry backend detail, and the
+     * exception message ends up in the starter's tool_failed log line.
+     */
+    private static void failFor(HttpStatusCode status) {
+        if (status.is3xxRedirection()) {
+            // Redirects are not followed (the credential must not go elsewhere) and an empty body must not read as
+            // "no issue" or as a transition that happened: an SSO login page would turn into not_found_or_denied or
+            // into a false success.
+            throw new BackendResponseException("redirect " + status.value());
+        }
+        throw status.is4xxClientError()
+                ? HttpClientErrorException.create(status, "", HttpHeaders.EMPTY, new byte[0], null)
+                : HttpServerErrorException.create(status, "", HttpHeaders.EMPTY, new byte[0], null);
     }
 
     @Override
@@ -123,8 +138,8 @@ public class JiraResourceAdapter implements JiraResourcePort {
                 .uri("/rest/api/2/project/{key}", projectKey)
                 .headers(credential()::applyTo)
                 .retrieve()
-                .body(ProjectResponse.class))
-                .map(ProjectResponse::toDomain);
+                .body(ProjectDetailsResponse.class))
+                .map(ProjectDetailsResponse::toProject);
     }
 
     @Override
@@ -234,28 +249,37 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @Override
-    public Optional<ProjectDetails> projectDetails(String projectKey) {
+    public ProjectList listProjects(int limit) {
+        // The list is not paged, so it is read as a stream and dropped after `limit` entries: an instance with
+        // thousands of projects costs `limit` entries, not the whole body (and not the size limit of the response).
         return asUser(() -> client.get()
-                .uri("/rest/api/2/project/{key}", projectKey)
-                .headers(credential()::applyTo)
-                .retrieve()
-                .body(ProjectDetailsResponse.class))
-                .map(ProjectDetailsResponse::toDomain);
-    }
-
-    @Override
-    public List<ProjectSummary> listProjects() {
-        ProjectListItem[] items = asUser(() -> client.get()
                 .uri("/rest/api/2/project")
                 .headers(credential()::applyTo)
-                .retrieve()
-                .body(ProjectListItem[].class))
+                .exchange((request, response) -> {
+                    if (response.getStatusCode().isError() || response.getStatusCode().is3xxRedirection()) {
+                        failFor(response.getStatusCode());
+                    }
+                    return readProjects(response.getBody(), limit);
+                }))
                 .orElseThrow(() -> new BackendResponseException("project list not available"));
-        List<ProjectSummary> projects = new ArrayList<>();
-        for (ProjectListItem item : items) {
-            projects.add(item.toDomain());
+    }
+
+    private static ProjectList readProjects(InputStream body, int limit) {
+        try (JsonParser parser = PROJECT_JSON.createParser(body)) {
+            if (parser.nextToken() != JsonToken.START_ARRAY) {
+                throw new BackendResponseException("project list is not an array");
+            }
+            List<ProjectSummary> projects = new ArrayList<>();
+            while (parser.nextToken() == JsonToken.START_OBJECT) {
+                if (projects.size() >= limit) {
+                    return new ProjectList(projects, true);
+                }
+                projects.add(parser.readValueAs(ProjectListItem.class).toDomain());
+            }
+            return new ProjectList(projects, false);
+        } catch (JacksonException unreadable) {
+            throw new BackendResponseException("project list not readable");
         }
-        return projects;
     }
 
     @Override
@@ -294,15 +318,27 @@ public class JiraResourceAdapter implements JiraResourcePort {
     public Optional<JiraComment> editComment(String issueKey, String commentId, String body) {
         // The PUT path names the issue, but a comment id alone is what Jira looks up: confirm, as the user, that the
         // comment hangs under the issue the policy judged before anything is written.
-        if (!commentBelongsTo(issueKey, commentId)) {
+        Optional<CommentSelfResponse> own = ownComment(issueKey, commentId);
+        if (own.isEmpty()) {
             return Optional.empty();
+        }
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("body", body);
+        // A PUT without `visibility` drops the restriction of a comment, which would show it to everybody who sees the
+        // issue. The restriction read above is sent back as it was; one this server cannot reproduce stops the edit.
+        CommentVisibility visibility = own.get().visibility();
+        if (visibility != null) {
+            if (!visibility.reproducible()) {
+                throw new RejectedByJiraException(Operation.RESTRICTED_COMMENT);
+            }
+            request.put("visibility", visibility.toRequest());
         }
         try {
             return asUser(() -> client.put()
                     .uri("/rest/api/2/issue/{key}/comment/{id}", issueKey, commentId)
                     .headers(credential()::applyTo)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("body", body))
+                    .body(request)
                     .retrieve()
                     .body(CommentResponse.class))
                     .map(comment -> comment.toDomain(issueKey));
@@ -311,7 +347,8 @@ public class JiraResourceAdapter implements JiraResourcePort {
         }
     }
 
-    private boolean commentBelongsTo(String issueKey, String commentId) {
+    /** The comment, when it hangs under the issue; empty when either is not visible or they do not belong together. */
+    private Optional<CommentSelfResponse> ownComment(String issueKey, String commentId) {
         Optional<IssueIdResponse> issue = asUser(() -> client.get()
                 .uri("/rest/api/2/issue/{key}?fields=summary", issueKey)
                 .headers(credential()::applyTo)
@@ -324,10 +361,11 @@ public class JiraResourceAdapter implements JiraResourcePort {
                 .body(CommentSelfResponse.class));
         if (issue.isEmpty() || comment.isEmpty() || issue.get().id() == null || comment.get().self() == null
                 || !commentId.equals(comment.get().id())) {
-            return false;
+            return Optional.empty();
         }
         java.util.regex.Matcher link = COMMENT_SELF.matcher(comment.get().self());
-        return link.find() && link.group(1).equals(issue.get().id()) && link.group(2).equals(commentId);
+        boolean belongs = link.find() && link.group(1).equals(issue.get().id()) && link.group(2).equals(commentId);
+        return belongs ? comment : Optional.empty();
     }
 
     @Override
@@ -476,6 +514,14 @@ public class JiraResourceAdapter implements JiraResourcePort {
         }).orElse(false);
     }
 
+    /** Ids of comments, work logs and attachments are numbers; anything else is not Jira's answer. */
+    private static String requireId(String id, String what) {
+        if (id == null || !ID.matcher(id).matches()) {
+            throw new BackendResponseException(what + " without a numeric id");
+        }
+        return id;
+    }
+
     /** The offset of the next page, or {@code null} when this one reached {@code total}. */
     static Integer nextStartAt(int startAt, int returned, Integer total) {
         return returned > 0 && total != null && startAt + returned < total ? startAt + returned : null;
@@ -551,18 +597,6 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ProjectResponse(String key, Named projectCategory) {
-
-        JiraProject toDomain() {
-            if (key == null || key.isBlank()) {
-                throw new BackendResponseException("project without key");
-            }
-            return new JiraProject(key, projectCategory == null || projectCategory.name() == null
-                    ? "" : projectCategory.name());
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ProjectRef(String key) {
     }
 
@@ -610,10 +644,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     record CommentResponse(String id, String created) {
 
         JiraComment toDomain(String issueKey) {
-            if (id == null || id.isBlank()) {
-                throw new BackendResponseException("comment without id");
-            }
-            return new JiraComment(issueKey, id, created);
+            return new JiraComment(issueKey, requireId(id, "comment"), created);
         }
     }
 
@@ -669,6 +700,11 @@ public class JiraResourceAdapter implements JiraResourcePort {
                             .map(v -> new ProjectDetails.Version(v.name(), Boolean.TRUE.equals(v.released()))).toList());
         }
 
+        JiraProject toProject() {
+            ProjectDetails details = toDomain();
+            return new JiraProject(details.key(), details.category(), details);
+        }
+
         private static List<String> names(List<Named> named) {
             return (named == null ? List.<Named>of() : named).stream().map(Named::name)
                     .filter(n -> n != null).toList();
@@ -702,10 +738,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     record CommentEntry(String id, UserResponse author, String body, String created, String updated) {
 
         IssueComment toDomain() {
-            if (id == null || id.isBlank()) {
-                throw new BackendResponseException("comment without id");
-            }
-            return new IssueComment(id, author == null ? null : author.name(), created, updated, body);
+            return new IssueComment(requireId(id, "comment"), author == null ? null : author.name(), created, updated, body);
         }
     }
 
@@ -726,15 +759,34 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record CommentSelfResponse(String id, String self) {
+    record CommentSelfResponse(String id, String self, CommentVisibility visibility) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommentVisibility(String type, String value, String identifier) {
+
+        /** A role or group restriction with a name: the two kinds the API of Jira Data Center accepts back. */
+        boolean reproducible() {
+            return ("role".equals(type) || "group".equals(type)) && value != null && !value.isBlank();
+        }
+
+        Map<String, Object> toRequest() {
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("type", type);
+            request.put("value", value);
+            if (identifier != null && !identifier.isBlank()) {
+                request.put("identifier", identifier);
+            }
+            return request;
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CreatedIssueResponse(String key) {
 
         String requireKey() {
-            if (key == null || key.isBlank()) {
-                throw new BackendResponseException("created issue without key");
+            if (key == null || !ISSUE_KEY.matcher(key).matches()) {
+                throw new BackendResponseException("created issue without a usable key");
             }
             return key;
         }
@@ -744,10 +796,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     record WorklogResponse(String id, UserResponse author, String started, String timeSpent, String comment) {
 
         JiraWorklog toDomain() {
-            if (id == null || id.isBlank()) {
-                throw new BackendResponseException("worklog without id");
-            }
-            return new JiraWorklog(id, author == null ? null : author.name(), started, timeSpent, comment);
+            return new JiraWorklog(requireId(id, "worklog"), author == null ? null : author.name(), started, timeSpent, comment);
         }
     }
 
@@ -767,10 +816,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     record AttachmentEntry(String id, String filename, Long size, String mimeType, String created, UserResponse author) {
 
         JiraAttachment toDomain() {
-            if (id == null || id.isBlank()) {
-                throw new BackendResponseException("attachment without id");
-            }
-            return new JiraAttachment(id, filename == null ? "" : filename, size == null ? -1 : size, mimeType,
+            return new JiraAttachment(requireId(id, "attachment"), filename == null ? "" : filename, size == null ? -1 : size, mimeType,
                     created, author == null ? null : author.name());
         }
     }

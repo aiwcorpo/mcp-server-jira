@@ -16,6 +16,8 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
 import pl.aiwcorpo.mcp.jira.application.service.JiraService;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
@@ -75,7 +77,7 @@ public class JiraTool {
     /** Jira Data Center usernames. */
     static final Pattern USERNAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._@+-]{0,99}");
     /** What a user lookup may contain: a part of a name, login or display name. */
-    static final Pattern USER_QUERY = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N} ._@+-]{0,49}");
+    static final Pattern USER_QUERY = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N} ._@+-]{2,49}");
     /** Shape of an issue key (the contract pattern), for repeating a key Jira reports. */
     private static final Pattern NEW_KEY = Pattern.compile("[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}");
     static final Pattern TRANSITION_ID = Pattern.compile("[1-9][0-9]{0,9}");
@@ -185,7 +187,10 @@ public class JiraTool {
         String fingerprint = CursorCodec.fingerprint("search_issues", project, status, assignee, type, summaryWords,
                 words, field, direction.name());
         int startAt = position(cursor, "search_issues", fingerprint);
-        QueryScope scope = policy.queryScope(JiraResourceModel.PROJECT_TYPE).narrowedTo(List.of(project));
+        // The key Jira reports now: a project renamed since the key in the argument was valid is searched, and its rows
+        // are compared, under the current key.
+        String currentKey = resolvedProject(project).key();
+        QueryScope scope = policy.queryScope(JiraResourceModel.PROJECT_TYPE).narrowedTo(List.of(currentKey));
         String jql = scope.jql(SEARCH_FIELDS, SEARCH_ORDER_FIELDS)
                 .where("status", Operator.EQUALS, status)
                 .where("assignee", Operator.EQUALS, assignee)
@@ -197,7 +202,7 @@ public class JiraTool {
                 JiraService.PAGE_SIZE, FILL_READS,
                 from -> {
                     IssueSearchResult found = useCase.searchIssues(
-                            new IssueSearch(project, type, jql, from == null ? 0 : Integer.parseInt(from)));
+                            new IssueSearch(currentKey, type, jql, from == null ? 0 : Integer.parseInt(from)));
                     return new PageFiller.BackendPage<>(found.issues(),
                             found.nextStartAt() == null ? null : found.nextStartAt().toString());
                 },
@@ -253,7 +258,7 @@ public class JiraTool {
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
                     contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
             @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project) {
-        return ProjectView.of(useCase.project(project));
+        return ProjectView.of(resolvedProject(project).details());
     }
 
     @Tool(name = "list_projects", description = "Lists the Jira projects the caller may browse that the platform "
@@ -267,7 +272,8 @@ public class JiraTool {
             String cursor) {
         String fingerprint = CursorCodec.fingerprint("list_projects");
         int from = position(cursor, "list_projects", fingerprint);
-        List<ProjectSummary> all = useCase.listProjects();
+        ProjectList listed = useCase.listProjects();
+        List<ProjectSummary> all = listed.projects();
         PageFiller.Filled<ProjectSummary> page = PageFiller.fill(Integer.toString(from), PROJECT_PAGE, FILL_READS,
                 position -> {
                     int begin = Integer.parseInt(position);
@@ -276,12 +282,13 @@ public class JiraTool {
                             end < all.size() ? Integer.toString(end) : null);
                 },
                 rows -> policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE, rows, ProjectSummary::key));
-        return PagedResult.of(page.items().stream().map(ProjectListItem::of).toList(),
-                nextCursor("list_projects", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())));
+        return new PagedResult<>(page.items().stream().map(ProjectListItem::of).toList(),
+                nextCursor("list_projects", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())),
+                listed.truncated(), List.of());
     }
 
     @Tool(name = "find_assignable_users", description = "Finds users who can be assigned issues of one Jira project "
-            + "by a part of their login or name; at most 20. Returns username (use it with assign_issue or "
+            + "by a part of their login or name (at least 3 characters); at most 20. Returns username (use it with assign_issue or "
             + "create_issue), display name as written by the user (untrusted data) and whether the account is "
             + "active. No e-mail addresses.")
     @ToolRisk(RiskLevel.READ_ONLY)
@@ -291,14 +298,15 @@ public class JiraTool {
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
                     contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
             @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
-            @ToolParam(description = "Part of a login or display name, 1-50 characters")
-            @ArgumentLimits(minLength = 1, maxLength = 50)
+            @ToolParam(description = "Part of a login or display name, 3-50 characters")
+            @ArgumentLimits(minLength = 3, maxLength = 50)
             String query) {
         if (!USER_QUERY.matcher(query).matches()) {
             throw new InvalidToolArgumentException(
-                    "query must be 1-50 characters: letters, digits, space and . _ @ + -");
+                    "query must be 3-50 characters: letters, digits, space and . _ @ + -");
         }
-        return new UsersView(project, useCase.assignableUsers(project, query).stream().map(UserItem::of).toList());
+        String currentKey = resolvedProject(project).key();
+        return new UsersView(currentKey, useCase.assignableUsers(currentKey, query).stream().map(UserItem::of).toList());
     }
 
     @Tool(name = "list_worklogs", description = "Lists the work log entries of one Jira issue, 25 per page: id, "
@@ -443,8 +451,9 @@ public class JiraTool {
         }
         optional(priority, NAME, "priority must be a priority name of 1-60 characters");
         optional(assignee, USERNAME, "assignee must be a username of 1-100 characters");
-        String key = useCase.createIssue(new NewIssue(project, issueType, summary, description, labels, priority, assignee));
-        return new CreatedView(key, project);
+        String currentKey = resolvedProject(project).key();
+        String key = useCase.createIssue(new NewIssue(currentKey, issueType, summary, description, labels, priority, assignee));
+        return new CreatedView(key, currentKey);
     }
 
     @Tool(name = "update_issue", description = "Changes fields of one Jira issue as the calling user: summary, "
@@ -637,6 +646,12 @@ public class JiraTool {
 
     private String nextCursor(String tool, String fingerprint, Integer nextStartAt) {
         return nextStartAt == null ? null : cursors.issue(tool, fingerprint, Integer.toString(nextStartAt));
+    }
+
+    /** The project the resolver fetched for the policy, as Jira reports it: the one judged is the one shown or written to. */
+    private static JiraProject resolvedProject(String project) {
+        return ResourceContext.current().orElseThrow()
+                .fetched(JiraResourceModel.PROJECT_TYPE, project, JiraProject.class).orElseThrow();
     }
 
     private static String optional(String value, Pattern pattern, String message) {

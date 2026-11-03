@@ -9,4 +9,9 @@
 - New tools: `list_comments`, `list_transitions`, `get_project`, `list_projects`, `find_assignable_users`, `list_worklogs`,
   `list_attachments`, `edit_comment`, `create_issue`, `update_issue`, `assign_issue`, `unassign_issue`, `link_issues`, `add_worklog`.
 - New setting `MCP_PAGING_CURSOR_KEY`.
+- Writes need a `supported` probe state with `issue_write`; closed before the first probe and while the version is unreadable unless
+  `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true`; an untested-version finding is kept across failed probe runs.
+- `edit_comment` sends the role or group visibility of the comment back and refuses other restrictions.
+- `find_assignable_users` needs at least 3 characters; `list_projects` reads at most 500 projects and sets `truncated`.
+- Times, ids and the key of a created issue from Jira are validated before they reach a model.
 - Apache-2.0 `LICENSE` and `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md`.

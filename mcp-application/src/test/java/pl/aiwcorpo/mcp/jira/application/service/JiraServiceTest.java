@@ -23,7 +23,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
 import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
@@ -203,7 +203,6 @@ class JiraServiceTest {
         assertThatThrownBy(() -> service.listWorklogs("ABC-2", 0)).isInstanceOf(NotFoundOrDeniedException.class);
         assertThatThrownBy(() -> service.listAttachments("ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
         assertThatThrownBy(() -> service.listTransitions("ABC-2")).isInstanceOf(NotFoundOrDeniedException.class);
-        assertThatThrownBy(() -> service.project("HR")).isInstanceOf(NotFoundOrDeniedException.class);
         assertThatThrownBy(() -> service.assignableUsers("HR", "al")).isInstanceOf(NotFoundOrDeniedException.class);
     }
 
@@ -216,6 +215,12 @@ class JiraServiceTest {
         assertThat(jira.worklogComment).isEqualTo("{noformat}\n[~admin]\n{noformat}");
         service.addWorklog("ABC-1", "2h", null);
         assertThat(jira.worklogComment).isNull();
+    }
+
+    @Test
+    void theProjectListIsReadUpToTheLimitOfTheServer() {
+        assertThat(service.listProjects().truncated()).isFalse();
+        assertThat(jira.projectLimits).containsExactly(JiraService.MAX_PROJECTS);
     }
 
     @Test
@@ -250,6 +255,7 @@ class JiraServiceTest {
         final List<NewIssue> created = new ArrayList<>();
         final List<IssueChanges> changes = new ArrayList<>();
         final List<String> pageRequests = new ArrayList<>();
+        final List<Integer> projectLimits = new ArrayList<>();
         List<IssueTransition> available = List.of(new IssueTransition("21", "In Progress", "In Progress"));
         IssueSearchResult searchAnswer = new IssueSearchResult(List.of(), null);
 
@@ -303,15 +309,9 @@ class JiraServiceTest {
         }
 
         @Override
-        public Optional<ProjectDetails> projectDetails(String projectKey) {
-            return "ABC".equals(projectKey)
-                    ? Optional.of(new ProjectDetails("ABC", "Alpha", "", List.of("Task"), List.of(), List.of()))
-                    : Optional.empty();
-        }
-
-        @Override
-        public List<ProjectSummary> listProjects() {
-            return List.of(new ProjectSummary("ABC", "Alpha", ""));
+        public ProjectList listProjects(int limit) {
+            projectLimits.add(limit);
+            return new ProjectList(List.of(new ProjectSummary("ABC", "Alpha", "")), false);
         }
 
         @Override

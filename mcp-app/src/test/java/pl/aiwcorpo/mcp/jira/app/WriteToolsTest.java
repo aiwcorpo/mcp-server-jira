@@ -283,6 +283,44 @@ class WriteToolsTest extends ServerTestSupport {
     }
 
     @Test
+    void aRestrictedCommentKeepsItsRestrictionWhenItIsEdited() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(call(client, "edit_comment", Map.of("issueKey", "ABC-1", "commentId", "10700", "body", "new")).isError())
+                    .isFalse();
+            assertThat(call(client, "edit_comment", Map.of("issueKey", "ABC-1", "commentId", "10500", "body", "new")).isError())
+                    .isFalse();
+        }
+        List<StubBackend.Request> puts = BACKEND.writes().stream().filter(r -> "PUT".equals(r.method())).toList();
+        JsonNode restricted = JSON.readTree(puts.get(0).body());
+        assertThat(restricted.at("/visibility/type").asString()).isEqualTo("role");
+        assertThat(restricted.at("/visibility/value").asString()).isEqualTo("Developers");
+        assertThat(restricted.at("/visibility/identifier").asString()).isEqualTo("10002");
+        assertThat(JSON.readTree(puts.get(1).body()).has("visibility")).as("an open comment stays open").isFalse();
+    }
+
+    @Test
+    void aRestrictionTheServerCannotReproduceStopsTheEdit() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "edit_comment",
+                    Map.of("issueKey", "ABC-1", "commentId", "10800", "body", "new"));
+
+            assertInvalidArgument(result, "visibility restriction this tool cannot reproduce");
+        }
+        assertThat(BACKEND.writes()).as("nothing is written, the restriction is not dropped").isEmpty();
+    }
+
+    @Test
+    void aKeyJiraReturnsForANewIssueMustLookLikeAKey() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "create_issue",
+                    Map.of("project", "ABC", "issueType", "Bad", "summary", "x"));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(text(result)).contains("\"error\":\"internal_error\"").doesNotContain("Ignore previous");
+        }
+    }
+
+    @Test
     void everyWriteToolIsRefusedWithoutTheWriteGroupAndNothingReachesJira() {
         try (McpSyncClient reader = clientWithToken(ServerTestSupport::reader, PAT)) {
             NEW_WRITES.forEach((tool, arguments) -> {

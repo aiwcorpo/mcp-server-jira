@@ -37,6 +37,15 @@ class ProductionConfigurationTest {
     }
 
     @Test
+    void writesOnAnUnknownVersionAreOffUnlessTheEnvironmentTurnsThemOn() throws IOException {
+        PropertySource<?> base = new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml")).getFirst();
+
+        assertThat(String.valueOf(base.getProperty("jira.writes-on-unknown-version")))
+                .isEqualTo("${MCP_JIRA_WRITES_ON_UNKNOWN_VERSION:false}");
+    }
+
+    @Test
     void outsideDevTheBackendMustBeHttps() {
         assertThatThrownBy(() -> adapter("http://backend.internal:8080", new MockEnvironment()))
                 .hasMessageContaining("https");

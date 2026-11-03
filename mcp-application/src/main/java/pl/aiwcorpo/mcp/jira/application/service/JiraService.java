@@ -16,8 +16,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
@@ -31,6 +30,8 @@ public class JiraService implements JiraUseCase {
     public static final int PAGE_SIZE = 25;
     /** Most users one lookup returns; the model narrows the query instead of paging through a directory. */
     public static final int USER_LOOKUP_SIZE = 20;
+    /** Most projects read from Jira's unpaged list; the answer says when there were more. */
+    public static final int MAX_PROJECTS = 500;
 
     private final JiraResourcePort jira;
 
@@ -55,13 +56,8 @@ public class JiraService implements JiraUseCase {
     }
 
     @Override
-    public ProjectDetails project(String projectKey) {
-        return jira.projectDetails(projectKey).orElseThrow(NotFoundOrDeniedException::new);
-    }
-
-    @Override
-    public List<ProjectSummary> listProjects() {
-        return jira.listProjects();
+    public ProjectList listProjects() {
+        return jira.listProjects(MAX_PROJECTS);
     }
 
     @Override

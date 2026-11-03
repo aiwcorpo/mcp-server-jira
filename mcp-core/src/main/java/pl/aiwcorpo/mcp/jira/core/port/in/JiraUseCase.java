@@ -11,8 +11,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 
@@ -27,9 +26,7 @@ public interface JiraUseCase {
 
     IssueSearchResult searchIssues(IssueSearch search);
 
-    ProjectDetails project(String projectKey);
-
-    List<ProjectSummary> listProjects();
+    ProjectList listProjects();
 
     List<JiraUser> assignableUsers(String projectKey, String query);
 

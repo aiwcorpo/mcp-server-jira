@@ -413,10 +413,12 @@ Poprawka po przebiegu na runnerze (2026-10-31): `ManifestExport` przeniesiony do
 
 - Starter 3.0.0-beta-13, kontrakty 6.2.1 przez BOM. `MCP_PAGING_CURSOR_KEY` dodany do konfiguracji i szablonu środowiska.
 - Katalog: 19 narzędzi (9 odczytów, 9 `UPDATE`, 1 `DESTRUCTIVE`); tabela w README. Wszystkie `@ResourceRef` na `Jira::Issue` albo `Jira::Project`; `link_issues` ma dwa.
-- Wersje: `JiraCapabilityProbe` (`serverInfo`, bez poświadczenia) + `JiraWriteGate`. Wspierane DC 9.12 do 11.x; `degraded` (starsza, 12+, Cloud) = tylko odczyty.
+- Wersje: `JiraCapabilityProbe` (`serverInfo`, bez poświadczenia) + `JiraWriteGate`. Wspierane DC 9.12 do 11.x; zapis tylko w `supported`; `degraded` (starsza, 12+, Cloud) i `unavailable` = tylko odczyty (`MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true` otwiera tylko `unavailable`; `degraded` zapamiętane między przebiegami sondy).
   Jedyna ścieżka wyszukiwania to `POST /rest/api/2/search` z `startAt`; nie potwierdzono na instancji, że DC 10.x i 11.x go zachowuje (dokumentacja "nowego Search API" 10.4 dotyczy Javowego API aplikacji).
 - `search_issues`: `PagedResult` z kursorem, `order_by`, `order`, filtr `summary`; `PageFiller` po filtrze polityki (też `list_projects`). Zmiana kształtu wyniku (bez `project`, `issues`, `hasMore`).
 - Przegląd bezpieczeństwa koordynatora: `edit_comment` sprawdza przynależność komentarza do zgłoszenia (id zgłoszenia z `self` komentarza) przed zapisem; pozostałe narzędzia nie biorą identyfikatora podrzędnego.
 - Testy: 167 w modułach (nowe: `ReadToolsTest`, `WriteToolsTest`, `VersionFixturesTest`, `DegradedModeTest`, `JiraCapabilityProbeTest`, `JiraWriteGateTest`); fixture `jira-dc-9.12` i `jira-dc-11.3` napisane z dokumentowanych kształtów, nie nagrane.
 - Propozycje kontraktowe (bez implementacji): CC-210 (pola JQL), CC-211 (tablice i sprinty), CC-212 (załączniki), CC-213 (Cloud, Basic). Wpisy do `CONTRACT_CHANGES.md` nie zostały dopisane przez tego agenta (zapis w cudzym repozytorium został zablokowany); tekst w katalogu roboczym koordynatora.
 - Porządki: LICENSE, NOTICE, SECURITY.md, CHANGELOG.md, CONTRIBUTING.md, licencja w `pom.xml`, ścieżki hosta usunięte z README i STATUS. Nie zrobione: wersja inna niż `0.1.0-SNAPSHOT`, `distributionManagement`, SBOM, obraz na ghcr.io (publikacja wymaga zgody).
+
+- Poprawki po przeglądzie (J-1, J-2, J-4 do J-8, J-12): bramka zapisu fail closed, widoczność komentarza przy edycji, zapytanie o użytkowników od 3 znaków, projekt z obiektu resolvera i klucz aktualny, lista projektów czytana strumieniowo do 500, walidacja czasów i identyfikatorów; workflow GitHub z przypiętymi SHA, `CI_APP_MIN_TESTS` 150. Otwarte do sprawdzenia na DC: J-2 (czy PUT bez `visibility` zdejmuje ograniczenie), J-3, J-10.

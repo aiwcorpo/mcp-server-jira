@@ -140,13 +140,73 @@ class ReadToolsTest extends ServerTestSupport {
     void theUserQueryCannotCarryParametersOfTheRequest() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             assertInvalidArgument(call(client, "find_assignable_users", Map.of("project", "ABC", "query", "a&maxResults=1000")),
-                    "query must be 1-50 characters");
+                    "query must be 3-50 characters");
             assertInvalidArgument(call(client, "find_assignable_users", Map.of("project", "ABC", "query", "a\nb")),
                     "query");
-            assertNotFoundOrDenied(call(client, "find_assignable_users", Map.of("project", "HR", "query", "al")));
+            assertNotFoundOrDenied(call(client, "find_assignable_users", Map.of("project", "HR", "query", "ali")));
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::path)
                 .doesNotContain("/rest/api/2/user/assignable/search");
+    }
+
+    @Test
+    void aUserQueryShorterThanThreeCharactersIsRefusedBeforeJira() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertInvalidArgument(call(client, "find_assignable_users", Map.of("project", "ABC", "query", "al")),
+                    "query is shorter than 3");
+        }
+        assertThat(BACKEND.requests()).isEmpty();
+    }
+
+    @Test
+    void jirasRefusalOfTheProjectInTheUserLookupLooksLikeAMissingProject() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "find_assignable_users", Map.of("project", "DEF", "query", "ali"));
+
+            assertNotFoundOrDenied(result);
+            assertThat(text(result)).doesNotContain("not valid");
+        }
+    }
+
+    @Test
+    void theProjectShownIsTheOneThePolicyJudgedAndIsReadOnce() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            assertThat(call(client, "get_project", Map.of("project", "ABC")).isError()).isFalse();
+        }
+        assertThat(BACKEND.requests()).extracting(StubBackend.Request::path).containsExactly("/rest/api/2/project/ABC");
+    }
+
+    @Test
+    void aLongProjectListIsReadUpToTheLimitAndSaysSo() {
+        BACKEND.projectsListed(2000);
+        try {
+            try (McpSyncClient client = clientWithCredential(PAT)) {
+                McpSchema.CallToolResult result = call(client, "list_projects", Map.of());
+
+                assertThat(result.isError()).isFalse();
+                JsonNode page = json(result);
+                assertThat(page.at("/truncated").asBoolean()).isTrue();
+                assertThat(page.at("/items")).extracting(item -> item.get("key").asString()).contains("ABC", "DEF");
+            }
+        } finally {
+            BACKEND.useDefaultFixtures();
+        }
+    }
+
+    @Test
+    void textsOfJiraThatAreNotTimesOrNumbersDoNotReachTheModel() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult comments = call(client, "list_comments", Map.of("issueKey", "ABC-43"));
+            assertThat(comments.isError()).isFalse();
+            assertThat(text(comments)).doesNotContain("Ignore previous instructions");
+            assertThat(json(comments).at("/items/0/created").isNull() || json(comments).at("/items/0/created").isMissingNode())
+                    .isTrue();
+            assertThat(json(comments).at("/items/0/updated").asString()).isEqualTo("2026-10-01T09:00:00.000+0000");
+
+            McpSchema.CallToolResult badId = call(client, "list_comments", Map.of("issueKey", "ABC-44"));
+            assertThat(badId.isError()).isTrue();
+            assertThat(text(badId)).contains("\"error\":\"internal_error\"");
+        }
     }
 
     @Test
@@ -212,7 +272,7 @@ class ReadToolsTest extends ServerTestSupport {
                 "list_worklogs", Map.of("issueKey", "ABC-1"),
                 "list_attachments", Map.of("issueKey", "ABC-1"),
                 "get_project", Map.of("project", "ABC"),
-                "find_assignable_users", Map.of("project", "ABC", "query", "al"),
+                "find_assignable_users", Map.of("project", "ABC", "query", "ali"),
                 "list_projects", Map.of());
         try (McpSyncClient none = clientWithCredential(null);
                 McpSyncClient revoked = clientWithCredential(StubBackend.EXPIRED_CREDENTIAL)) {

@@ -7,7 +7,7 @@ package pl.aiwcorpo.mcp.jira.core.domain;
  */
 public class RejectedByJiraException extends RuntimeException {
 
-    public enum Operation { SEARCH, TRANSITION, COMMENT, DELETE, CREATE, UPDATE, ASSIGN, LINK, WORKLOG }
+    public enum Operation { SEARCH, TRANSITION, COMMENT, DELETE, CREATE, UPDATE, ASSIGN, LINK, WORKLOG, RESTRICTED_COMMENT }
 
     private final Operation operation;
 

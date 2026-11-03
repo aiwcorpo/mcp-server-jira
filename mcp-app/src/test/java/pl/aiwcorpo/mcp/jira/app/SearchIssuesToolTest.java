@@ -251,6 +251,17 @@ class SearchIssuesToolTest extends ServerTestSupport {
     }
 
     @Test
+    void aProjectAddressedByItsFormerKeyIsSearchedAndItsRowsAreKept() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode found = json(call(client, "search_issues", Map.of("project", "OLD")));
+
+            assertThat(found.at("/items")).extracting(item -> item.get("key").asString()).containsExactly("ABC-1", "ABC-2");
+        }
+        assertThat(JSON.readTree(BACKEND.searches().get(0)).at("/jql").asString())
+                .as("the query names the project under the key Jira reports now").contains("project in (\"ABC\")");
+    }
+
+    @Test
     void sortAndSummaryFilterGoThroughTheStructuredQuery() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             assertThat(call(client, "search_issues", Map.of("project", "ABC", "order_by", "created", "order", "asc",

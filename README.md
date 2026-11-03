@@ -54,11 +54,13 @@ serwer czyta `GET /rest/api/2/serverInfo` bez poświadczenia (`version` albo `ve
 
 | Stan | Kiedy | Co robi serwer |
 | --- | --- | --- |
-| `supported` | DC od 9.12.0 do 11.x | wszystkie narzędzia (cechy `issue_read`, `issue_write`, `search_offset`) |
-| `degraded` | wersja starsza niż 9.12, 12.0 i nowsza, `deploymentType` Cloud | odczyty działają, każde narzędzie zmieniające dane kończy się `upstream_unavailable` ("This Jira version is not supported for changes", nic nie zostało zmienione) |
-| `unavailable` | brak odpowiedzi, `serverInfo` zablokowane, brak wersji | serwer działa jak przed sondą (zapisy nie są blokowane: Jira, która ukrywa wersję, nie jest dowodem na nieprzetestowaną) |
+| `supported` | DC od 9.12.0 do 11.x | wszystkie narzędzia (cechy `issue_read`, `issue_write`, `search_offset`); zapis wymaga stanu `supported` z cechą `issue_write` |
+| `degraded` | wersja starsza niż 9.12, 12.0 i nowsza, `deploymentType` Cloud | odczyty działają, każde narzędzie zmieniające dane kończy się `upstream_unavailable` ("This Jira version is not supported for changes", nic nie zostało zmienione), zawsze, niezależnie od ustawień |
+| `unavailable` | brak odpowiedzi, `serverInfo` zablokowane, brak wersji; także okno od startu do pierwszej odpowiedzi sondy | odczyty działają, zapisy zamknięte (fail closed, jak w serwerze Confluence), chyba że `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true`; to ustawienie otwiera zapisy wyłącznie w tym stanie |
 
-Stan widać w logu (`backend capability: probe=jira state=...`), w metryce `mcp_backend_capability{probe="jira",state}` i
+Stan `degraded` jest zapamiętany: gdy sonda raz stwierdziła wersję nieprzetestowaną, a kolejny przebieg zawiedzie (timeout, 502, strona logowania, odpowiedź bez wersji), serwer nadal zgłasza `degraded` i zapisy zostają zamknięte do przebiegu, który wskaże wersję przetestowaną.
+
+Jira za proxy, które blokuje anonimowe `serverInfo`, wymaga `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true`, inaczej serwer będzie tylko czytał. Stan widać w logu (`backend capability: probe=jira state=...`), w metryce `mcp_backend_capability{probe="jira",state}` i
 w szczegółach `/actuator/health` (`backendCapability`). Serwer startuje w każdym ze stanów. Aby zmienić granice,
 zmień stałe w `JiraCapabilityProbe` i dopisz fixture nowej wersji.
 
@@ -74,12 +76,12 @@ Kolumna "Zasób" to `@ResourceRef` (C7): polityka Cedar ocenia akcję na zasobie
 | `list_comments` | Lista komentarzy | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Issue` | 25 komentarzy na stronę, najstarsze pierwsze, tekst jako `UntrustedText` do 5000 znaków, `cursor` |
 | `list_transitions` | Dostępne przejścia | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Issue` | id, nazwa i status docelowy przejść dostępnych teraz |
 | `get_project` | Pobierz projekt | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Project` (`project`) | nazwa, kategoria, typy zgłoszeń, komponenty, wersje (po 50) |
-| `list_projects` | Lista projektów | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Project` (elementy wyniku, `ResultFilter`) | projekty widoczne dla konta i dozwolone przez politykę, ok. 25 na stronę, `cursor` |
-| `find_assignable_users` | Znajdź użytkowników do przypisania | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Project` (`project`) | do 20 użytkowników po fragmencie loginu lub nazwy; bez e-maili; nazwa wyświetlana jako `UntrustedText` |
+| `list_projects` | Lista projektów | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Project` (elementy wyniku, `ResultFilter`) | projekty widoczne dla konta i dozwolone przez politykę, ok. 25 na stronę, `cursor`; z listy Jiry (niestronicowanej) czyta najwyżej 500 projektów, dalsze pomija i ustawia `truncated` |
+| `find_assignable_users` | Znajdź użytkowników do przypisania | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Project` (`project`) | do 20 użytkowników po fragmencie loginu lub nazwy (co najmniej 3 znaki); bez e-maili; nazwa wyświetlana jako `UntrustedText` |
 | `list_worklogs` | Lista wpisów czasu pracy | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Issue` | 25 wpisów na stronę, komentarz jako `UntrustedText`, `cursor` |
 | `list_attachments` | Lista załączników | `READ_ONLY` | `read` | `mcp-jira-read` | `Jira::Issue` | metadane do 50 załączników (nazwa jako `UntrustedText`); treści nie pobiera |
 | `add_comment` | Dodaj komentarz | `UPDATE` | `update` | `mcp-jira-write` | `Jira::Issue` | komentarz w `{noformat}`; powtórzenie dubluje komentarz |
-| `edit_comment` | Edytuj komentarz | `UPDATE` | `update` | `mcp-jira-write` | `Jira::Issue` | zamienia tekst komentarza (przynależność komentarza do zgłoszenia sprawdzana przed zapisem); powtórzenie zostawia ten sam stan |
+| `edit_comment` | Edytuj komentarz | `UPDATE` | `update` | `mcp-jira-write` | `Jira::Issue` | zamienia tekst komentarza (przynależność komentarza do zgłoszenia sprawdzana przed zapisem; ograniczenie widoczności roli lub grupy odsyłane bez zmian, inne ograniczenie zatrzymuje edycję); powtórzenie zostawia ten sam stan |
 | `transition_issue` | Zmień status zgłoszenia | `UPDATE` | `update` | `mcp-jira-write` | `Jira::Issue` | przejście po id lub nazwie; powtórzenie po sukcesie kończy się błędem (przejście niedostępne) |
 | `create_issue` | Utwórz zgłoszenie | `UPDATE` | `update` | `mcp-jira-write` | `Jira::Project` (`project`) | projekt, typ, tytuł; opis, do 10 etykiet, priorytet, przypisany opcjonalnie; opis w `{noformat}`; powtórzenie tworzy drugie zgłoszenie |
 | `update_issue` | Edytuj zgłoszenie | `UPDATE` | `update` | `mcp-jira-write` | `Jira::Issue` | tytuł, opis (w `{noformat}`), etykiety (zastępują zbiór), priorytet; co najmniej jedno pole; powtórzenie zostawia ten sam stan |
@@ -121,6 +123,9 @@ Zasady wyników i zapytań:
   użytkownika i ocenia politykę Cedar na zasobie takim, jakim opisuje go Jira: zgłoszenie przeniesione do projektu z kategorią `Restricted`,
   nieistniejące i niewidoczne dają to samo `not_found_or_denied`. Resolver zgłoszenia pobiera zgłoszenie i kategorię jego projektu.
   `ResultFilter` usuwa z list elementy, których polityka nie dopuszcza (`search_issues`: klucz trafienia; `list_projects`: klucz projektu).
+- **`find_assignable_users` a katalog użytkowników (ryzyko przyjęte):** zakres to projekt oceniony przez politykę i uprawnienie Assignable User w Jirze; wynik nie ma e-maili. Jira DC dopasowuje `username` także do adresu e-mail i zwykle pozwala przypisywać wszystkim z grupy użytkowników, więc seria zapytań (minimum 3 znaki, 20 wyników) może wyliczać katalog albo potwierdzać istnienie adresu bez jego zwracania. Tak samo `search_issues` z nieznanym `assignee` odpowiada `invalid_argument`. Narzędzie jest `READ_ONLY` i podlega ograniczeniu liczby wywołań w gateway'u.
+- **Pola z Jiry:** czasy (`created`, `updated`, `started`) przechodzą dalej tylko w postaci ISO 8601, identyfikatory komentarzy, worklogów i załączników muszą być liczbami (inaczej `internal_error`), a klucz nowego zgłoszenia musi pasować do wzorca klucza. Nazwy komponentów i wersji ustawiają administratorzy projektu; są ucinane do 60 znaków i bez znaków sterujących.
+- **`get_project`** pokazuje projekt z obiektu, który resolver pobrał dla polityki (bez drugiego odczytu). `search_issues`, `create_issue` i `find_assignable_users` używają klucza projektu, który Jira zgłasza teraz, więc projekt adresowany dawnym kluczem jest szukany pod aktualnym.
 - **Podrzędne identyfikatory:** `edit_comment` przed zapisem czyta zgłoszenie (id) i komentarz jako użytkownik i porównuje id zgłoszenia z
   linkiem `self` komentarza; komentarz spoza zgłoszenia, które ocenia polityka, to `not_found_or_denied`. Pozostałe narzędzia nie biorą
   identyfikatora podrzędnego (`list_*` i `add_*` biorą tylko zgłoszenie; `link_issues` bierze dwa klucze zgłoszeń, oba oceniane).
@@ -247,7 +252,7 @@ Polityka platformy (grupy `mcp-jira-*` i grant na projekty) zwęża to, co serwe
 Zanim serwer dostanie ruch, sprawdź na instancji klienta samymi żądaniami `GET` (nic nie zmieniają):
 
 1. `GET <MCP_JIRA_URL>/rest/api/2/serverInfo` bez poświadczenia: `version` w zakresie 9.12 do 11.x, `deploymentType` `Server`. Gdy 401 albo 403, sonda
-   zgłosi `unavailable` (zapisy nie są blokowane), ale wersji nie da się potwierdzić.
+   zgłosi `unavailable` i zapisy zostaną zamknięte; po sprawdzeniu wersji ręcznie włącz `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true`.
 2. PAT włączone: z PAT-em użytkownika testowego `GET /rest/api/2/myself` (nagłówek `Authorization: Bearer <PAT>`) daje 200. 401 przy poprawnym tokenie
    znaczy zwykle, że administrator wyłączył PAT (`atlassian.pats.enabled`).
 3. `GET /rest/api/2/project` i `GET /rest/api/2/project/<KLUCZ>`: projekty widoczne dla konta; w odpowiedzi projektu `projectCategory` (kategoria `Restricted` zamyka dostęp w polityce).
@@ -272,6 +277,7 @@ wyłącza TLS i mTLS, trzyma `jti` w pamięci i dopuszcza klucze testowe; starte
 | `MCP_JIRA_URL` | adres bazowy Jiry (bez `/rest/api/2`); poza `dev` tylko `https` | wymagane |
 | `MCP_JIRA_ALLOW_PLAIN_HTTP` | `true` dopuszcza `http` poza `dev`, wyłącznie dla mocków `mcp-platform-dev` (PAT idzie wtedy otwartym tekstem; ostrzeżenie w logu) | `false` |
 | `MCP_JIRA_SSL_BUNDLE` | bundle SSL dla HTTPS systemu, np. `mcp-internal-ca`; puste = zaufanie JDK | puste |
+| `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION` | `true` otwiera zapisy, gdy sonda nie potrafi odczytać wersji Jiry (stan `unavailable`); nigdy dla wersji znanej jako nieprzetestowana (`degraded`) | `false` |
 | `MCP_PAGING_CURSOR_KEY` | klucz kursorów stronicowania (Base64, co najmniej 32 bajty); ten sam na wszystkich instancjach; wygeneruj: `openssl rand -base64 32` | wylosowany przy starcie (kursor działa tylko na tej instancji) |
 | `MCP_REDIS_HOST`, `MCP_REDIS_PORT`, `MCP_REDIS_USER`, `MCP_REDIS_PASSWORD` | Redis dla jednorazowego `jti` (użytkownik ACL `mcp-jira`, klucze `jti:mcp-jira:*`) | `localhost`, `6379`, `mcp-jira`, puste |
 | `MCP_PORT`, `MCP_BIND` | port i adres nasłuchu | `8443`, `0.0.0.0` |

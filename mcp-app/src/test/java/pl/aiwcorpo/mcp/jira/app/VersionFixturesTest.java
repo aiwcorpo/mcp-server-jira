@@ -54,7 +54,7 @@ class VersionFixturesTest extends ServerTestSupport {
             JsonNode worklogs = json(call(client, "list_worklogs", Map.of("issueKey", "ABC-1")));
             assertThat(worklogs.at("/items/0/timeSpent").asString()).isEqualTo("1h 30m");
 
-            JsonNode users = json(call(client, "find_assignable_users", Map.of("project", "ABC", "query", "b")));
+            JsonNode users = json(call(client, "find_assignable_users", Map.of("project", "ABC", "query", "bob")));
             assertThat(users.at("/users")).hasSize(1);
             assertThat(users.at("/users/0/username").asString()).isEqualTo("bob");
             assertThat(users.toString()).doesNotContain("avatar", "bob@corp.test");

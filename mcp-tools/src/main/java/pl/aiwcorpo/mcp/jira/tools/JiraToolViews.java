@@ -46,7 +46,7 @@ final class JiraToolViews {
 
         static IssueView of(JiraIssue issue) {
             return new IssueView(issue.key(), issue.projectKey(), JiraToolViews.name(issue.type()), JiraToolViews.name(issue.status()),
-                    JiraToolViews.username(issue.assignee()), issue.updated(), summaryText(issue.summary()),
+                    JiraToolViews.username(issue.assignee()), timestamp(issue.updated()), summaryText(issue.summary()),
                     JiraWikiText.plain(issue.description(), MAX_DESCRIPTION));
         }
     }
@@ -56,7 +56,7 @@ final class JiraToolViews {
     }
 
     static IssueListItem listItem(JiraIssue i) {
-        return new IssueListItem(i.key(), JiraToolViews.name(i.type()), JiraToolViews.name(i.status()), JiraToolViews.username(i.assignee()), i.updated(),
+        return new IssueListItem(i.key(), JiraToolViews.name(i.type()), JiraToolViews.name(i.status()), JiraToolViews.username(i.assignee()), timestamp(i.updated()),
                 summaryText(i.summary()));
     }
 
@@ -64,7 +64,7 @@ final class JiraToolViews {
             @Nullable UntrustedText body) {
 
         static CommentItem of(IssueComment c) {
-            return new CommentItem(c.id(), JiraToolViews.username(c.author()), c.created(), c.updated(),
+            return new CommentItem(c.id(), JiraToolViews.username(c.author()), timestamp(c.created()), timestamp(c.updated()),
                     JiraWikiText.plain(c.body(), MAX_COMMENT));
         }
     }
@@ -118,7 +118,7 @@ final class JiraToolViews {
             @Nullable UntrustedText comment) {
 
         static WorklogItem of(JiraWorklog w) {
-            return new WorklogItem(w.id(), JiraToolViews.username(w.author()), w.started(), JiraToolViews.name(w.timeSpent()),
+            return new WorklogItem(w.id(), JiraToolViews.username(w.author()), timestamp(w.started()), JiraToolViews.name(w.timeSpent()),
                     JiraWikiText.plain(w.comment(), MAX_COMMENT));
         }
     }
@@ -128,7 +128,7 @@ final class JiraToolViews {
 
         static AttachmentItem of(JiraAttachment a) {
             return new AttachmentItem(a.id(), UntrustedText.plain(a.filename(), MAX_FILENAME), a.size(),
-                    JiraToolViews.label(a.mimeType()), a.created(), JiraToolViews.username(a.author()));
+                    JiraToolViews.label(a.mimeType()), timestamp(a.created()), JiraToolViews.username(a.author()));
         }
     }
 
@@ -150,7 +150,7 @@ final class JiraToolViews {
     record CommentView(String issueKey, String commentId, String created) {
 
         static CommentView of(JiraComment comment) {
-            return new CommentView(comment.issueKey(), comment.id(), comment.created());
+            return new CommentView(comment.issueKey(), comment.id(), timestamp(comment.created()));
         }
     }
 
@@ -173,6 +173,14 @@ final class JiraToolViews {
     /** User names come from the company directory, not from Jira alone; same hygiene as the names, longer limit. */
     static String username(String username) {
         return username == null ? null : UntrustedText.cut(TextHygiene.normalize(username), MAX_USERNAME);
+    }
+
+    private static final java.util.regex.Pattern TIMESTAMP = java.util.regex.Pattern
+            .compile("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{5,16}(?:Z|[+-][0-9]{2}:?[0-9]{2})?");
+
+    /** Times are ISO 8601 as Jira writes them; anything else in such a field is not passed on to a model. */
+    static String timestamp(String value) {
+        return value != null && TIMESTAMP.matcher(value).matches() ? value : null;
     }
 
     /** Names longer than a status name (project names, MIME types): same hygiene, {@link #MAX_LABEL} characters. */

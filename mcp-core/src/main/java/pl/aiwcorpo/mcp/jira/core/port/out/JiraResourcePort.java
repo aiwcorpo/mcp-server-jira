@@ -14,8 +14,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 
@@ -36,11 +35,8 @@ public interface JiraResourcePort {
     /** One page of issues of {@code search.projectKey()} matching the search, at most {@code maxResults} rows. */
     IssueSearchResult search(IssueSearch search, int maxResults);
 
-    /** Name, category, issue types, components and versions of a project; empty when it is not visible. */
-    Optional<ProjectDetails> projectDetails(String projectKey);
-
-    /** Every project the caller may browse (Jira does not page this list). */
-    List<ProjectSummary> listProjects();
+    /** The first {@code limit} projects the caller may browse (Jira does not page this list; the rest is not read). */
+    ProjectList listProjects(int limit);
 
     /** Users who can be assigned issues of the project whose name starts with or contains {@code query}. */
     Optional<List<JiraUser>> assignableUsers(String projectKey, String query, int maxResults);

@@ -58,6 +58,8 @@ public class JiraToolErrors implements ToolErrorMapping {
                 case UPDATE -> "Jira refused the change; a field may not be on the screen of the issue or the value is unknown to Jira.";
                 case ASSIGN -> "Jira refused the assignment; the user may not be assignable in this project.";
                 case LINK -> "Jira refused the link; the link type may not exist or linking may be switched off.";
+                case RESTRICTED_COMMENT -> "The comment has a visibility restriction this tool cannot reproduce; "
+                        + "edit it in Jira.";
                 case WORKLOG -> "Jira refused the work log entry; check the time format and that work logging is on.";
             }));
         }

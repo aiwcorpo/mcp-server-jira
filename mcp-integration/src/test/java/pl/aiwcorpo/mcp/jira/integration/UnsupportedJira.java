@@ -14,8 +14,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
-import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
+import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
@@ -44,12 +43,7 @@ abstract class UnsupportedJira implements JiraResourcePort {
     }
 
     @Override
-    public Optional<ProjectDetails> projectDetails(String projectKey) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public List<ProjectSummary> listProjects() {
+    public ProjectList listProjects(int limit) {
         throw new UnsupportedOperationException();
     }
 
