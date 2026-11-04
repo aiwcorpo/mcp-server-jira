@@ -8,6 +8,8 @@ M4: osiągnięty (2026-10-29) - starter 3.0.0-beta-9 (kontrakty 4.1.0): typ poś
 
 M5: kod gotowy (2026-10-31) - starter 3.0.0-beta-10 (kontrakty 5.1.0): bez wirtualnego serwera, zawężenia linkiem i `link_scope`; token z claimem `vs` albo `vsc` -> 401 (`GatewayOnlyAccessTest`), 149 testów przez `ci/run.sh verify`; CI przez `ci/run.sh` z nakładkami GitLab, Jenkins i GitHub; manifest `mcp-app/target/mcp-manifest.json` z `manifest.export.skip=false`. Bez deklaracji osiągnięcia do czasu dowodu z runnera.
 
+Fala wydania (2026-11-04): tytuły narzędzi po angielsku (19, wszystkie `definitionHash` zmienione, nazwy, opisy, schematy i ryzyko bez zmian); CI bez GitHub Packages (zależności z Maven Central, bez `.ci/`, `MCP_MAVEN_REPOSITORY_*` i `packages: read`; wersje bez zmian, podbicie do 1.0.0 w następnym przebiegu); zadanie pull request z `contents: read` i bez tokenu; `release.yml` (obraz do ghcr.io/aiwcorpo, SBOM, GitHub Release) i etykieta `org.opencontainers.image.source`; folder `docs/` usunięty (treść w mcp-docs, unikalne fragmenty przekazane koordynatorowi); `make ci` zielony (254 testy w modułach); obraz `mcp-server-jira:m6-4a65166` (zbudowany z 4a65166; następny commit zmienia tylko dokumentację i STATUS.md).
+
 ## M4: plan kamieni (2026-10-29)
 
 Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md startera, "Z beta-5 na beta-6" i "Z beta-6 na beta-7".
