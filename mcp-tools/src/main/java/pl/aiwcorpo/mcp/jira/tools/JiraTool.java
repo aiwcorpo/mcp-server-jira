@@ -397,7 +397,7 @@ public class JiraTool {
             + "the transition name and the status the issue moved to. Repeating the call after it succeeded "
             + "fails (the transition is no longer offered) instead of moving the issue again.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Transition issue")
+    @ToolTitle("Change issue status")
     public TransitionView transitionIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,

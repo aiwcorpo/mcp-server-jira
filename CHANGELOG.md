@@ -1,17 +1,20 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
-- Starter 3.0.0-beta-14 (contracts 6.3.2).
-- Jira Data Center 9.12 to 11.x: version probe on `serverInfo`; `degraded` state (older, newer, Cloud) serves reads only.
-- `search_issues` returns `PagedResult` with a cursor (`items`, `nextCursor`) instead of `{project, issues, hasMore}`; new
-  arguments `order_by`, `order`, `cursor` and the `summary` filter; pages are filled after the policy filter. Breaking for clients.
-- New tools: `list_comments`, `list_transitions`, `get_project`, `list_projects`, `find_assignable_users`, `list_worklogs`,
-  `list_attachments`, `edit_comment`, `create_issue`, `update_issue`, `assign_issue`, `unassign_issue`, `link_issues`, `add_worklog`.
-- New setting `MCP_PAGING_CURSOR_KEY`.
-- Writes need a `supported` probe state with `issue_write`; closed before the first probe and while the version is unreadable unless
-  `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true`; an untested-version finding is kept across failed probe runs.
-- `edit_comment` sends the role or group visibility of the comment back and refuses other restrictions.
-- `find_assignable_users` needs at least 3 characters; `list_projects` reads at most 500 projects and sets `truncated`.
-- Times, ids and the key of a created issue from Jira are validated before they reach a model.
-- Apache-2.0 `LICENSE` and `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md`.
+First public release. MCP server for Jira Data Center 9.12 to 11.x, run behind the platform gateway. Built on
+`mcp-platform-starter` 3.0.0 and `mcp-contracts` 6.3.2.
+
+- 19 tools. Reads: `search_issues`, `get_issue`, `list_comments`, `list_transitions`, `get_project`, `list_projects`,
+  `find_assignable_users`, `list_worklogs`, `list_attachments`. Changes: `add_comment`, `edit_comment`, `transition_issue`,
+  `create_issue`, `update_issue`, `assign_issue`, `unassign_issue`, `link_issues`, `add_worklog`, `delete_issue`.
+- Lists return `PagedResult` with a cursor (`items`, `nextCursor`); pages are filled after the policy filter. The cursor is
+  signed with `MCP_PAGING_CURSOR_KEY`.
+- A version probe on `serverInfo` sets the state; outside the supported range (older, newer, Cloud) the server is `degraded` and
+  serves reads only. Writes need the `supported` state with `issue_write`; they stay closed before the first probe and while the
+  version is unreadable, unless `MCP_JIRA_WRITES_ON_UNKNOWN_VERSION=true`.
+- `edit_comment` keeps the role or group visibility of the comment and refuses other restrictions. `find_assignable_users`
+  needs at least 3 characters; `list_projects` reads at most 500 projects and sets `truncated`.
+- Times, ids and the key of a created issue returned by Jira are validated before they reach a model.
+- Tool titles are in English. Apache-2.0 `LICENSE` and `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md`; the release workflow builds the
+  image for ghcr.io and attaches the manifest and SBOM to the GitHub Release.

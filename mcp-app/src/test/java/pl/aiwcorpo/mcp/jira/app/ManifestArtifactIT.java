@@ -40,8 +40,8 @@ class ManifestArtifactIT extends ServerTestSupport {
         assertThat(artifact.at("/credential/acceptedTypes")).isEqualTo(servedManifest.at("/credential/acceptedTypes"));
         assertThat(artifact.get("tools")).as("definitions and definitionHash").isEqualTo(servedManifest.get("tools"));
         assertThat(artifact.has("environment")).as("only the devstack profile publishes environment=dev (CC-138)").isFalse();
-        assertThat(artifact.get("version").asString()).as("the version of the pom, not the 1.0.0 of the tests")
-                .isNotEqualTo("1.0.0").isEqualTo(projectVersion());
+        assertThat(artifact.get("version").asString()).as("the version of the pom")
+                .isEqualTo(projectVersion());
         assertThat(artifact.at("/credential/acceptedTypes").toString()).isEqualTo("[\"user-secret\"]");
     }
 
