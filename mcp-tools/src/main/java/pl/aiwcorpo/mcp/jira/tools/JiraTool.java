@@ -138,7 +138,7 @@ public class JiraTool {
             + "marked as untrusted data. The description is plain text converted from Jira wiki markup "
             + "(images removed, links as text) and cut at 10000 characters.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Pobierz zgłoszenie")
+    @ToolTitle("Get issue")
     public IssueView getIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -154,7 +154,7 @@ public class JiraTool {
             + "further pages from Jira to fill a page when some issues are left out, so a page can hold up to 49. "
             + "There is no total. Pass nextCursor back with the same filters to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Szukaj zgłoszeń")
+    @ToolTitle("Search issues")
     public PagedResult<IssueListItem> searchIssues(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
@@ -216,7 +216,7 @@ public class JiraTool {
             + "untrusted data (plain text converted from wiki markup, cut at 5000 characters). Pass nextCursor back "
             + "to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Lista komentarzy")
+    @ToolTitle("List comments")
     public PagedResult<CommentItem> listComments(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -238,7 +238,7 @@ public class JiraTool {
             + "current status: transition id, name and the status it leads to. Use an id or a name from this list "
             + "with transition_issue.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Dostępne przejścia")
+    @ToolTitle("List transitions")
     public TransitionsView listTransitions(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -252,7 +252,7 @@ public class JiraTool {
             + "administrators, the issue types that can be created in it, its components and its versions "
             + "(with release state), at most 50 of each. Use it to pick valid values for create_issue.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Pobierz projekt")
+    @ToolTitle("Get project")
     public ProjectView getProject(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
@@ -265,7 +265,7 @@ public class JiraTool {
             + "policy lets through: key, name and category, about 25 per page (up to 49 when some projects are left out). "
             + "Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Lista projektów")
+    @ToolTitle("List projects")
     public PagedResult<ProjectListItem> listProjects(
             @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
             @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
@@ -292,7 +292,7 @@ public class JiraTool {
             + "create_issue), display name as written by the user (untrusted data) and whether the account is "
             + "active. No e-mail addresses.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Znajdź użytkowników do przypisania")
+    @ToolTitle("Find assignable users")
     public UsersView findAssignableUsers(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
@@ -313,7 +313,7 @@ public class JiraTool {
             + "author username, start time, time spent and the comment as written by Jira users (untrusted data). "
             + "Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Lista wpisów czasu pracy")
+    @ToolTitle("List worklogs")
     public PagedResult<WorklogItem> listWorklogs(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -335,7 +335,7 @@ public class JiraTool {
             + "name (untrusted data), size in bytes, MIME type, creation time and uploader. Metadata only; the "
             + "content is never fetched.")
     @ToolRisk(RiskLevel.READ_ONLY)
-    @ToolTitle("Lista załączników")
+    @ToolTitle("List attachments")
     public AttachmentsView listAttachments(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -355,7 +355,7 @@ public class JiraTool {
             + "key Jira knows the issue under (differs from the given one when the issue was moved), the id of "
             + "the new comment and its creation time. Calling it twice adds two comments.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Dodaj komentarz")
+    @ToolTitle("Add comment")
     public CommentView addComment(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -374,7 +374,7 @@ public class JiraTool {
             + "preformatted block. Repeating the call leaves the same text. Returns the issue key, the comment id "
             + "and the comment creation time.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Edytuj komentarz")
+    @ToolTitle("Edit comment")
     public CommentView editComment(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -397,7 +397,7 @@ public class JiraTool {
             + "the transition name and the status the issue moved to. Repeating the call after it succeeded "
             + "fails (the transition is no longer offered) instead of moving the issue again.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Zmień status zgłoszenia")
+    @ToolTitle("Transition issue")
     public TransitionView transitionIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -419,7 +419,7 @@ public class JiraTool {
             + "preformatted block. Projects that require other fields refuse the call. Returns the key of the new "
             + "issue. Calling it twice creates two issues.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Utwórz zgłoszenie")
+    @ToolTitle("Create issue")
     public CreatedView createIssue(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
@@ -461,7 +461,7 @@ public class JiraTool {
             + "empty list removes all) and priority. At least one field is required. Repeating the call leaves "
             + "the same state. Returns the key Jira knows the issue under.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Edytuj zgłoszenie")
+    @ToolTitle("Update issue")
     public ChangedView updateIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -500,7 +500,7 @@ public class JiraTool {
             + "find_assignable_users). Repeating the call leaves the same state. Returns the key Jira knows the "
             + "issue under.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Przypisz zgłoszenie")
+    @ToolTitle("Assign issue")
     public ChangedView assignIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -519,7 +519,7 @@ public class JiraTool {
     @Tool(name = "unassign_issue", description = "Removes the assignee of one Jira issue. Repeating the call leaves "
             + "the same state. Returns the key Jira knows the issue under.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Usuń przypisanie zgłoszenia")
+    @ToolTitle("Unassign issue")
     public ChangedView unassignIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -536,7 +536,7 @@ public class JiraTool {
             + "issue blocks the inward issue. The caller needs access to both issues. Calling it twice may leave "
             + "two links.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Powiąż zgłoszenia")
+    @ToolTitle("Link issues")
     public LinkView linkIssues(
             @ToolParam(description = "Key of the outward issue, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -565,7 +565,7 @@ public class JiraTool {
             + "block. Returns the key Jira knows the issue under and the id of the entry. Calling it twice logs "
             + "the time twice.")
     @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Zaloguj czas pracy")
+    @ToolTitle("Add worklog")
     public WorklogCreatedView addWorklog(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
@@ -595,7 +595,7 @@ public class JiraTool {
             + "refused. Returns the key Jira knew the issue under (differs from the given one when the issue "
             + "was moved).")
     @ToolRisk(RiskLevel.DESTRUCTIVE)
-    @ToolTitle("Usuń zgłoszenie")
+    @ToolTitle("Delete issue")
     public DeleteView deleteIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,

@@ -46,7 +46,7 @@ class DeleteIssueToolTest extends ServerTestSupport {
         McpSchema.Tool tool = listedTool("delete_issue");
         assertThat(tool.annotations().destructiveHint()).isTrue();
         assertThat(tool.annotations().readOnlyHint()).isFalse();
-        assertThat(tool.title()).isEqualTo("Usuń zgłoszenie");
+        assertThat(tool.title()).isEqualTo("Delete issue");
     }
 
     @Test

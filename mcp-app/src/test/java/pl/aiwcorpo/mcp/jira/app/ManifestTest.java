@@ -162,7 +162,7 @@ class ManifestTest extends ServerTestSupport {
         assertThat(tool.get("risk").asString()).isEqualTo("DESTRUCTIVE");
         assertThat(tool.at("/resourceRefs/0/type").asString()).isEqualTo("Jira::Issue");
         assertThat(tool.at("/definition/annotations/destructiveHint").asBoolean()).isTrue();
-        assertThat(tool.at("/definition/title").asString()).isEqualTo("Usuń zgłoszenie");
+        assertThat(tool.at("/definition/title").asString()).isEqualTo("Delete issue");
     }
 
     @Test
