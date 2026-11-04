@@ -56,7 +56,7 @@ jira:
     connect-timeout: 2s
     read-timeout: 10s
     max-response-size: 1MB
-    # Plain http outside 'dev' only for the mocks of mcp-platform-dev; never in a real deployment.
+    # Plain http outside 'dev' only for the mocks of the dev stack; never in a real deployment.
     allow-plain-http: ${MCP_JIRA_ALLOW_PLAIN_HTTP:false}
   # Writes while the version of Jira is unreadable (the probe cannot tell). Never for a version known to be untested.
   writes-on-unknown-version: ${MCP_JIRA_WRITES_ON_UNKNOWN_VERSION:false}

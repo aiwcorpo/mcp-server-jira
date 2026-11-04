@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 /**
  * Jira Data Center REST API v2 in tests: a real HTTP server on loopback, so the adapter runs with its real
  * client, timeouts and error mapping. Paths and payloads follow Jira (and the WireMock Jira of
- * mcp-platform-dev, {@code mocks/jira}):
+ * the dev stack, {@code mocks/jira}):
  * <ul>
  *   <li>projects: {@code ABC} and {@code DEF} without category, {@code HR} in category "Restricted", {@code SEC} 403,
  *       others 404;</li>

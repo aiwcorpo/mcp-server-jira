@@ -569,7 +569,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
             if (!plainHttpAllowed) {
                 // The user's PAT travels in a header; over http it would cross the network in clear text.
                 throw new IllegalStateException("jira.backend.base-url must use https outside the 'dev' profile "
-                        + "(jira.backend.allow-plain-http exists for the mocks of mcp-platform-dev only)");
+                        + "(jira.backend.allow-plain-http exists for the mocks of the dev stack only)");
             }
             LOG.warn("event=backend_plain_http detail=\"credentials go to the backend unencrypted\"");
         }
