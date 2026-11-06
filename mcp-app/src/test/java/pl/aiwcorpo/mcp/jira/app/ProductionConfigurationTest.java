@@ -37,6 +37,15 @@ class ProductionConfigurationTest {
     }
 
     @Test
+    void thePolicyDataComeFromTheGatewayAndNoPolicyBundleSettingRemains() throws IOException {
+        Map<String, Object> base = (Map<String, Object>) new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml")).getFirst().getSource();
+
+        assertThat(String.valueOf(base.get("aiwcorpo.mcp.platform.policy-data.url"))).isEqualTo("${MCP_GATEWAY_POLICY_DATA_URL:}");
+        assertThat(base.keySet()).noneMatch(key -> key.startsWith("aiwcorpo.mcp.platform.policy."));
+    }
+
+    @Test
     void writesOnAnUnknownVersionAreOffUnlessTheEnvironmentTurnsThemOn() throws IOException {
         PropertySource<?> base = new YamlPropertySourceLoader()
                 .load("application.yml", new ClassPathResource("application.yml")).getFirst();

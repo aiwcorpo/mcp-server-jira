@@ -85,6 +85,22 @@ class ManifestTest extends ServerTestSupport {
     }
 
     @Test
+    void theManifestCarriesThePoliciesAndTheDeclarationsOfTheJarWithTheirHash() throws Exception {
+        JsonNode manifest = manifest();
+
+        assertThat(manifest.at("/policies/namespace").asString()).isEqualTo("Jira");
+        assertThat(manifest.at("/policies/files").findValuesAsString("name")).containsExactly("read.cedar", "update.cedar");
+        assertThat(manifest.get("policiesHash").asString()).startsWith("sha256:");
+        List<String> declared = new ArrayList<>();
+        manifest.get("resourceTypes").forEach(type -> declared.add(type.get("type").asString()));
+        assertThat(declared).containsExactlyInAnyOrder("Jira::Project", "Jira::Issue");
+        JsonNode issue = manifest.get("resourceTypes").valueStream()
+                .filter(type -> "Jira::Issue".equals(type.get("type").asString())).findFirst().orElseThrow();
+        assertThat(issue.get("parent").asString()).isEqualTo("Jira::Project");
+        assertThat(issue.get("parentAttribute").asString()).isEqualTo("project");
+    }
+
+    @Test
     void theDefinitionsAreExactlyWhatToolsListPublishesSoTheHashesAgree() throws Exception {
         JsonNode manifest = manifest();
         List<JsonNode> listed = listedTools();

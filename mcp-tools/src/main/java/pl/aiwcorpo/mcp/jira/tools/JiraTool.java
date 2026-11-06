@@ -142,7 +142,7 @@ public class JiraTool {
     public IssueView getIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
         return IssueView.of(resolved(issueKey));
     }
@@ -158,7 +158,7 @@ public class JiraTool {
     public PagedResult<IssueListItem> searchIssues(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
             @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
             @ToolParam(description = "Optional filters, all must match", required = false)
             JqlFilter jql_filter,
@@ -220,7 +220,7 @@ public class JiraTool {
     public PagedResult<CommentItem> listComments(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
             @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
@@ -242,7 +242,7 @@ public class JiraTool {
     public TransitionsView listTransitions(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
         String key = resolved(issueKey).key();
         return new TransitionsView(key, useCase.listTransitions(key).stream().map(TransitionItem::of).toList());
@@ -256,7 +256,7 @@ public class JiraTool {
     public ProjectView getProject(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
             @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project) {
         return ProjectView.of(resolvedProject(project).details());
     }
@@ -296,7 +296,7 @@ public class JiraTool {
     public UsersView findAssignableUsers(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
             @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
             @ToolParam(description = "Part of a login or display name, 3-50 characters")
             @ArgumentLimits(minLength = 3, maxLength = 50)
@@ -317,7 +317,7 @@ public class JiraTool {
     public PagedResult<WorklogItem> listWorklogs(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
             @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
@@ -339,7 +339,7 @@ public class JiraTool {
     public AttachmentsView listAttachments(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
         String key = resolved(issueKey).key();
         List<JiraAttachment> attachments = useCase.listAttachments(key);
@@ -359,7 +359,7 @@ public class JiraTool {
     public CommentView addComment(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Comment text, plain text")
             @ArgumentLimits(minLength = 1, maxLength = MAX_BODY)
@@ -378,7 +378,7 @@ public class JiraTool {
     public CommentView editComment(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Comment id from list_comments or add_comment")
             @ArgumentLimits(minLength = 1, maxLength = 18, pattern = COMMENT_ID_PATTERN)
@@ -401,7 +401,7 @@ public class JiraTool {
     public TransitionView transitionIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Transition id, or transition name available in the issue's current status")
             @ArgumentLimits(minLength = 1, maxLength = MAX_NAME)
@@ -423,7 +423,7 @@ public class JiraTool {
     public CreatedView createIssue(
             @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
             @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.PROJECT_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
             @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
             @ToolParam(description = "Issue type name, e.g. Task or Bug")
             @ArgumentLimits(minLength = 1, maxLength = MAX_NAME)
@@ -465,7 +465,7 @@ public class JiraTool {
     public ChangedView updateIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "New one-line summary, 1-255 characters", required = false)
             @ArgumentLimits(minLength = 1, maxLength = MAX_SUMMARY)
@@ -504,7 +504,7 @@ public class JiraTool {
     public ChangedView assignIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Username of the new assignee")
             @ArgumentLimits(minLength = 1, maxLength = MAX_USERNAME)
@@ -523,7 +523,7 @@ public class JiraTool {
     public ChangedView unassignIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
         gate.requireWritable();
         String key = resolved(issueKey).key();
@@ -540,11 +540,11 @@ public class JiraTool {
     public LinkView linkIssues(
             @ToolParam(description = "Key of the outward issue, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String outwardIssueKey,
             @ToolParam(description = "Key of the inward issue, e.g. ABC-13")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String inwardIssueKey,
             @ToolParam(description = "Link type name, e.g. Blocks, Relates, Duplicate")
             @ArgumentLimits(minLength = 1, maxLength = MAX_NAME)
@@ -569,7 +569,7 @@ public class JiraTool {
     public WorklogCreatedView addWorklog(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
             @ToolParam(description = "Time spent: numbers with w, d, h or m, e.g. '1h 30m'")
             @ArgumentLimits(minLength = 2, maxLength = 20, pattern = TIME_SPENT_PATTERN)
@@ -599,7 +599,7 @@ public class JiraTool {
     public DeleteView deleteIssue(
             @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
-                    contractPattern = JiraResourceModel.ISSUE_KEY_CONTRACT)
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
         gate.requireWritable();
         String key = resolved(issueKey).key();

@@ -37,4 +37,9 @@ public class JiraProjectResolver implements ResourceResolver<JiraProject> {
     public ResolvedResource describe(JiraProject project) {
         return JiraResourceDescription.of(project);
     }
+
+    @Override
+    public Optional<ResolvedResource> probe(String projectKey) {
+        return JiraResourceDescription.probeOfProject(projectKey);
+    }
 }

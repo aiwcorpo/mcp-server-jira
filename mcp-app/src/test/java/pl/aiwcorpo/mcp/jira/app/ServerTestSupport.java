@@ -10,10 +10,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,10 +33,7 @@ abstract class ServerTestSupport {
 
     static final String SERVER_ID = "mcp-jira";
     static final String SYSTEM = "jira";
-    /** True only for a server of a system outside the contracts' SystemId (a trial one); this server is real. */
-    static final boolean TRIAL_SYSTEM = false;
     static final String ENDPOINT = "/mcp";
-    static final Set<String> CONTRACT_SYSTEMS = contractSystems();
     static final String PAT = "Bearer jira-pat-of-jkowalski-7f3a";
     static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -46,6 +41,13 @@ abstract class ServerTestSupport {
     static final java.nio.file.Path MANIFEST_FILE = java.nio.file.Path.of("target", "mcp-manifest.json").toAbsolutePath();
 
     static final TestGateway GATEWAY = TestGateway.start(SERVER_ID);
+
+    static {
+        GATEWAY.policyData().scopeMapping(Map.of(
+                "mcp-jira-proj-ABC", List.of("Jira::Project/ABC"),
+                "mcp-jira-proj-DEF", List.of("Jira::Project/DEF"),
+                "mcp-jira-proj-HR", List.of("Jira::Project/HR")));
+    }
     static final StubBackend BACKEND = StubBackend.start();
 
     @DynamicPropertySource
@@ -84,7 +86,7 @@ abstract class ServerTestSupport {
     static final String READ_GROUP = "mcp-jira-read";
     static final String WRITE_GROUP = "mcp-jira-write";
     static final String DESTRUCTIVE_GROUP = "mcp-jira-destructive";
-    /** Maps to the scope {@code Jira::Project/<key>} in the static entities of the example bundle (ABC and DEF only). */
+    /** Mapped to the scope {@code Jira::Project/<key>} in the policy data of {@link #GATEWAY}. */
     static final String PROJECT_ABC_GROUP = "mcp-jira-proj-ABC";
     static final String PROJECT_DEF_GROUP = "mcp-jira-proj-DEF";
 
@@ -96,7 +98,7 @@ abstract class ServerTestSupport {
         return clientWithToken(ServerTestSupport::editor, credential);
     }
 
-    /** Reads everything the bundle lets a reader read; nothing is granted for changes. */
+    /** Reads everything the policies let a reader read; nothing is granted for changes. */
     static void reader(TestGateway.Token user) {
         user.username("jkowalski").groups(List.of(READ_GROUP));
     }
@@ -106,7 +108,7 @@ abstract class ServerTestSupport {
         user.username("jkowalski").groups(List.of(READ_GROUP, WRITE_GROUP, PROJECT_ABC_GROUP, PROJECT_DEF_GROUP));
     }
 
-    /** As {@link #editor}, plus the destructive group and a fresh second factor, which the example bundle requires. */
+    /** As {@link #editor}, plus the destructive group and a fresh second factor, which the gateway requires for it. */
     static void eraser(TestGateway.Token user) {
         user.username("jkowalski")
                 .groups(List.of(READ_GROUP, WRITE_GROUP, DESTRUCTIVE_GROUP, PROJECT_ABC_GROUP, PROJECT_DEF_GROUP))
@@ -125,35 +127,24 @@ abstract class ServerTestSupport {
         return client;
     }
 
-    /**
-     * The starter sends only C10 errors valid against {@code tool-error.schema.json}, whose {@code system} is the
-     * closed {@code SystemId} list of the contracts. A trial system (outside the list) gets {@code internal_error}
-     * instead; a real system must get the full error with the portal link, never {@code internal_error}.
-     */
+    /** A C10 {@code credential_required} with the portal link of the system, as the user is meant to see it. */
     static void assertCredentialRequired(McpSchema.CallToolResult result) {
         assertThat(result.isError()).isTrue();
-        if (TRIAL_SYSTEM) {
-            assertThat(CONTRACT_SYSTEMS).as("a trial system is outside SystemId").doesNotContain(SYSTEM);
-            assertThat(text(result)).contains("\"error\":\"internal_error\"");
-        } else {
-            assertThat(text(result)).contains("\"error\":\"credential_required\"", "\"system\":\"" + SYSTEM + "\"",
-                    "\"connectUrl\":\"http://localhost:18090/connections?system=" + SYSTEM + "\"");
-        }
+        assertThat(text(result)).contains("\"error\":\"credential_required\"", "\"system\":\"" + SYSTEM + "\"",
+                "\"connectUrl\":\"http://localhost:18090/connections?system=" + SYSTEM + "\"");
     }
 
-    /** A real server's system is one of the contracts'; a trial one is not. */
+    /** The system id must be one the contracts accept: {@code mcp-<system>} is the server id and the CN of its certificate. */
     @Test
-    void contractSystemIsKnown() {
-        assertThat(CONTRACT_SYSTEMS.contains(SYSTEM)).isEqualTo(!TRIAL_SYSTEM);
+    void systemIsAnIdOfTheContracts() {
+        assertThat(SYSTEM).matches(systemIdPattern());
+        assertThat(SERVER_ID).isEqualTo("mcp-" + SYSTEM);
     }
 
-    private static Set<String> contractSystems() {
+    private static String systemIdPattern() {
         try (InputStream schema = ServerTestSupport.class.getClassLoader()
                 .getResourceAsStream("mcp-contracts/schemas/common.schema.json")) {
-            Set<String> systems = new HashSet<>();
-            JsonMapper.builder().build().readTree(schema).at("/$defs/SystemId/enum")
-                    .forEach(system -> systems.add(system.asString()));
-            return Set.copyOf(systems);
+            return JsonMapper.builder().build().readTree(schema).at("/$defs/SystemId/pattern").asString();
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }

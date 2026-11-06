@@ -63,6 +63,27 @@ class JiraResolversTest {
         assertThat(project.attributes()).containsEntry("category", "Restricted");
     }
 
+    @Test
+    void anIssueAndItsProjectCarryTheScopeOfTheProjectJiraReports() {
+        ResolvedResource moved = issues.describe(issues.fetch("ABC-3").orElseThrow());
+
+        assertThat(moved.scopes()).containsExactly("Jira::Project/HR");
+        assertThat(moved.parent().orElseThrow().scopes()).containsExactly("Jira::Project/HR");
+        assertThat(projects.describe(projects.fetch("ABC").orElseThrow()).scopes()).containsExactly("Jira::Project/ABC");
+    }
+
+    @Test
+    void theProbeOfAnIssueNamesTheProjectOfTheKeyAndAsksJiraNothing() {
+        ResolvedResource probe = issues.probe("ABC_X-12").orElseThrow();
+
+        assertThat(probe.id()).isEqualTo("ABC_X-12");
+        assertThat(probe.scopes()).containsExactly("Jira::Project/ABC_X");
+        assertThat(probe.parent().orElseThrow().id()).isEqualTo("ABC_X");
+        assertThat(probe.parent().orElseThrow().attributes()).containsEntry("category", "");
+        assertThat(projects.probe("HR").orElseThrow().scopes()).containsExactly("Jira::Project/HR");
+        assertThat(jira.projectLookups).isEmpty();
+    }
+
     private static final class FakeJira extends UnsupportedJira {
 
         final List<String> projectLookups = new ArrayList<>();

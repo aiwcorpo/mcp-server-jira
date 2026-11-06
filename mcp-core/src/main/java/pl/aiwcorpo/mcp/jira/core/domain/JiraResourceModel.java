@@ -10,12 +10,11 @@ public final class JiraResourceModel {
     public static final String PROJECT_TYPE = "Jira::Project";
 
     /**
-     * Contract patterns (common.schema.json) and bounds of the key arguments; the starter also checks every
-     * {@code @ResourceRef} value against the pattern of its type before a resolver sees it.
+     * Bounds of the key arguments. The pattern is the {@code idPattern} of the type in
+     * {@code mcp/policies/resource-types.json}, which the starter publishes in the tool schema and checks on every
+     * {@code @ResourceRef} value before a resolver sees it.
      */
-    public static final String ISSUE_KEY_CONTRACT = "JiraIssueKey";
     public static final int ISSUE_KEY_MAX_LENGTH = 21;
-    public static final String PROJECT_KEY_CONTRACT = "JiraProjectKey";
     public static final int PROJECT_KEY_MAX_LENGTH = 10;
 
     private JiraResourceModel() {

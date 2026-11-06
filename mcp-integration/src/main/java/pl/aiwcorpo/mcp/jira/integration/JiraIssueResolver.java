@@ -64,6 +64,11 @@ public class JiraIssueResolver implements ResourceResolver<JiraIssue> {
         return JiraResourceDescription.of(issue);
     }
 
+    @Override
+    public Optional<ResolvedResource> probe(String issueKey) {
+        return JiraResourceDescription.probeOfIssue(issueKey);
+    }
+
     private Optional<JiraIssue> withCategory(String issueKey, Map<String, Optional<JiraProject>> projects) {
         Optional<JiraIssue> issue = jira.findIssue(issueKey);
         if (issue.isEmpty()) {
