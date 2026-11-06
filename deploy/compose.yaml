@@ -5,7 +5,7 @@
 
 services:
   mcp-jira:
-    image: ${MCP_REGISTRY:-ghcr.io/aiwcorpo}/mcp-jira:${MCP_JIRA_VERSION:-2.0.0}
+    image: ${MCP_REGISTRY:-ghcr.io/aiwcorpo}/mcp-server-jira:${MCP_JIRA_VERSION:-2.0.0}
     pull_policy: ${PULL_POLICY:-missing}
     restart: unless-stopped
     read_only: true
