@@ -1,0 +1,4 @@
+[
+  {"group": "mcp-jira-proj-ABC", "scopes": ["Jira::Project/ABC"]},
+  {"group": "mcp-jira-proj-DEF", "scopes": ["Jira::Project/DEF"]}
+]

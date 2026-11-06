@@ -20,6 +20,10 @@ export MCP_TLS_TRUSTSTORE="$dev/certs/ca/truststore.p12"
 MCP_TLS_STORE_PASSWORD="$(secret TLS_STORE_PASSWORD)"
 export MCP_TLS_STORE_PASSWORD
 export MCP_GATEWAY_JWKS_URI="${MCP_GATEWAY_JWKS_URI:-https://localhost:18445/.well-known/jwks.json}"
+# The policy data come from the same internal port, over mTLS with the mcp-jira certificate; the gateway certificate names
+# mcp-gateway.internal, not localhost.
+export MCP_GATEWAY_POLICY_DATA_URL="${MCP_GATEWAY_POLICY_DATA_URL:-https://localhost:18445/internal/v1/policy-data}"
+export MCP_GATEWAY_TLS_NAME="${MCP_GATEWAY_TLS_NAME:-mcp-gateway.internal}"
 export MCP_REDIS_HOST=localhost MCP_REDIS_PORT=16379 MCP_REDIS_USER=mcp-jira
 MCP_REDIS_PASSWORD="$(secret REDIS_MCP_JIRA_PASSWORD)"
 export MCP_REDIS_PASSWORD
