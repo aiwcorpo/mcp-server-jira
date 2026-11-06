@@ -6,16 +6,16 @@ in `mcp-docs`. The image is built from the `Dockerfile` in the repository root.
 
 ```
 deploy/
-├── compose.yaml                 the server as a container (read-only, no capabilities)
-├── mcp-jira.env                 settings for Compose: fill in the empty values
-├── certs/                       keystore.p12 and truststore.p12 go here (never committed)
-├── systemd/
-│   ├── mcp-jira.service         unit (account mcp, systemd sandbox, logs to journald)
-│   └── mcp-jira.env.template    settings -> /etc/mcp-jira/mcp-jira.env
-└── scripts/
-    ├── install.sh               first installation (account, directories, unit)
-    ├── update.sh                replaces the jar and keeps a copy for rollback
-    └── healthcheck.sh           /actuator/health over mTLS
+|-- compose.yaml                 the server as a container (read-only, no capabilities)
+|-- mcp-jira.env                 settings for Compose: fill in the empty values
+|-- certs/                       keystore.p12 and truststore.p12 go here (never committed)
+|-- systemd/
+|   |-- mcp-jira.service         unit (account mcp, systemd sandbox, logs to journald)
+|   `-- mcp-jira.env.template    settings -> /etc/mcp-jira/mcp-jira.env
+`-- scripts/
+    |-- install.sh               first installation (account, directories, unit)
+    |-- update.sh                replaces the jar and keeps a copy for rollback
+    `-- healthcheck.sh           /actuator/health over mTLS
 ```
 
 ## Prerequisites
