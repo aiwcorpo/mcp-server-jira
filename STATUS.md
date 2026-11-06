@@ -12,6 +12,8 @@ Fala wydania (2026-11-04): tytuły narzędzi po angielsku (19, wszystkie `defini
 
 Wydanie 1.0.0 (2026-11-04): wersja projektu 1.0.0, `mcp-platform.version` 3.0.0 (kontrakty 6.3.2), wpis 1.0.0 w CHANGELOG.md, README na starterze 3.0.0; `transition_issue` ma tytuł "Change issue status"; w `ManifestArtifactIT` usunięto warunek, że wersja manifestu różni się od 1.0.0 testów (wersja projektu jest teraz 1.0.0); `make ci` zielony (254 testów w modułach); obraz `mcp-server-jira:m6-7a6143a` (zbudowany z 7a6143a; następny commit zmienia tylko STATUS.md).
 
+Wersja 2.0.0 (2026-11-06, serwery dynamiczne): starter 4.0.0 i kontrakty 7.0.0; polityki Jiry w `mcp-app/src/main/resources/mcp/policies/` (schemat `Jira`, `resource-types.json`, `read.cedar`, `update.cedar`) zamiast `policies/jira/` w `mcp-policies`; reguły `call` po grupie, zakaz dla `restricted` i konto serwisowe generuje platforma. Resolvery dają zakres `Jira::Project/<klucz>` i sondę przydziału; `JiraPolicyDecisionsTest` (16 przypadków, `PolicyDecisions`) przenosi przypadki z `tests/decisions/jira.json`; ustawienia `MCP_POLICY_*` zastąpione przez `MCP_GATEWAY_POLICY_DATA_URL`. `deploy/` ma `compose.yaml`, `mcp-jira.env`, `certs/` i procedurę dodania serwera do platformy; `.run/` ma konfiguracje IntelliJ dla serwera i `LocalGateway`. Do zrobienia przez człowieka: zarejestrować manifest i zatwierdzić polityki w gatewayu przed pierwszym ruchem.
+
 ## M4: plan kamieni (2026-10-29)
 
 Starter 3.0.0-beta-7, kontrakty 4.1.0 (BOM). Lista kontrolna: MIGRATION-3.0.md startera, "Z beta-5 na beta-6" i "Z beta-6 na beta-7".

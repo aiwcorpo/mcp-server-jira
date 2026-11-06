@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0
+
+Major release: the policies of the server live in this repository. Built on `mcp-platform-starter` 4.0.0 and `mcp-contracts` 7.0.0.
+
+- Cedar policies in `mcp-app/src/main/resources/mcp/policies/` (schema in the namespace `Jira`, `resource-types.json`, `read.cedar`,
+  `update.cedar`), carried in the manifest with `policiesHash`. They replace `policies/jira/` of the `mcp-policies` repository; the
+  rules are the same, except what the platform now generates for every server: the call rules by group, the forbid for
+  `restricted` projects (from `Jira::Project.category`) and the rule for the service account.
+- A deployed server whose policies or declarations changed waits for approval in the gateway: it refuses calls (`policies_not_approved`,
+  `policies_differ`) until an administrator approves the new `policiesHash`. Register the new manifest and approve before the first call.
+- Both resolvers describe the scope `Jira::Project/<key>` of the project Jira reports and provide the grant probe (`probe(id)`), so a
+  caller without a grant is refused before Jira is asked. Key arguments take their pattern from the declared types
+  (`@ArgumentLimits(resourceType = ...)`).
+- Removed: `MCP_POLICY_URL`, `MCP_POLICY_KEY_ID`, `MCP_POLICY_PUBLIC_KEY_FILE`, `MCP_POLICY_STATE_DIR`, the signed policy bundle and the
+  `StateDirectory` of the unit. Added: `MCP_GATEWAY_POLICY_DATA_URL` (and `MCP_GATEWAY_TLS_NAME` when the host in it is not a name of the
+  gateway certificate). The server connects to the gateway for the policy data with its own certificate, which now needs the usage
+  `clientAuth` next to `serverAuth` (CN `mcp-jira`, SAN `mcp-jira.internal`).
+- `deploy/` has `compose.yaml`, `mcp-jira.env` and `certs/` next to the systemd files, and the procedure that adds the system
+  `jira` in the broker and the server `mcp-jira` in the gateway without restarting anything.
+- `.run/` has IntelliJ configurations for the server and for the `LocalGateway` of `mcp-platform-test`, with the policies directory and a scope mapping.
+
 ## 1.0.0
 
 First public release. MCP server for Jira Data Center 9.12 to 11.x, run behind the platform gateway. Built on
