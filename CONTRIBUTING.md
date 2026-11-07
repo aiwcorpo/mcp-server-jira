@@ -11,7 +11,7 @@ JDK 25. No container runtime is needed: tests run against `TestGateway` and an i
 through WSL2.
 
 ```bash
-ci/run.sh verify     # text checks, then clean verify; the same script runs in CI
+./mvnw -B verify     # the same command runs in CI
 ```
 
 `docs/developer/tools.md` in `mcp-docs` describes how to add a tool. A new tool needs: `@ToolTitle`, `@ToolRisk`,

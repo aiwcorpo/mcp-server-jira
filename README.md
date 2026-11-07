@@ -46,14 +46,12 @@ JDK 25 is required (`JAVA_HOME` must point to it; an older `java` in `PATH` fail
 ```bash
 export JAVA_HOME=/path/to/jdk-25
 ./mvnw verify      # build and tests, jar in mcp-app/target/mcp-jira.jar
-make ci            # ci/run.sh verify: source hygiene, mvnw clean verify, check that every test module ran
 ```
 
 The tests need neither Docker nor a Jira. `TestGateway` from `mcp-platform-test` publishes a JWKS made from the contract test
-keys and signs internal JWTs, and `StubBackend` answers like the Jira REST API. `make ci` also leaves the manifest in
+keys and signs internal JWTs, and `StubBackend` answers like the Jira REST API. `./mvnw verify` also leaves the manifest in
 `mcp-app/target/mcp-manifest.json`; register it in the gateway and approve new `UPDATE` and `DESTRUCTIVE` tools there.
-`ci/run.sh image` builds the container image (`Dockerfile`, `eclipse-temurin:25-jre`, port 8443) from `main` only and
-needs a Docker daemon.
+`docker build -t mcp-jira:dev .` builds the container image (`Dockerfile`, `eclipse-temurin:25-jre`, port 8443) from that jar and needs a Docker daemon. The GitHub, GitLab and Jenkins files run `./mvnw -B verify`.
 
 ## Policies
 
