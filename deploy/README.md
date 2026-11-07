@@ -9,13 +9,9 @@ deploy/
 |-- compose.yaml                 the server as a container (read-only, no capabilities)
 |-- mcp-jira.env                 settings for Compose: fill in the empty values
 |-- certs/                       keystore.p12 and truststore.p12 go here (never committed)
-|-- systemd/
-|   |-- mcp-jira.service         unit (account mcp, systemd sandbox, logs to journald)
-|   `-- mcp-jira.env.template    settings -> /etc/mcp-jira/mcp-jira.env
-`-- scripts/
-    |-- install.sh               first installation (account, directories, unit)
-    |-- update.sh                replaces the jar and keeps a copy for rollback
-    `-- healthcheck.sh           /actuator/health over mTLS
+`-- systemd/
+    |-- mcp-jira.service         unit (account mcp, systemd sandbox, logs to journald)
+    `-- mcp-jira.env.template    settings -> /etc/mcp-jira/mcp-jira.env
 ```
 
 ## Prerequisites
@@ -82,7 +78,7 @@ every instance sees a change within a few seconds. Adding, changing and removing
       "internalUrl":"https://mcp-jira.corp.internal:8443/mcp","credential":{"required":true,"acceptedTypes":["user-secret"],"type":"user-secret"}}'
     ```
 
-3. **Deploy** the server as above (`docker compose up -d`, or `deploy/scripts/install.sh` and `systemctl enable --now mcp-jira`).
+3. **Deploy** the server as above (`docker compose up -d`, or the VM steps below).
 4. **Register the manifest.** The pipeline of the repository does it with `mcp-app/target/mcp-manifest.json`, the build artifact (it is
    attached to the GitHub Release) and the certificate `mcp-registry-ci-mcp-jira`:
 
@@ -132,6 +128,34 @@ MCP_REGISTRY=artifactory.corp.test/mcp
 
 ## Upgrade from 1.x
 
-Version 2.0.0 does not read `MCP_POLICY_URL`, `MCP_POLICY_KEY_ID`, `MCP_POLICY_PUBLIC_KEY_FILE` and `MCP_POLICY_STATE_DIR`, and refuses to
-start when they are set through `aiwcorpo.mcp.platform.policy.*`. Remove them, set `MCP_GATEWAY_POLICY_DATA_URL`, and renew the
+Version 2.0.0 reads the policy data from the gateway and the policies from the jar, and refuses to start while a setting of the earlier
+policy bundles is left. Remove those settings, set `MCP_GATEWAY_POLICY_DATA_URL`, and renew the
 certificate if it has no `clientAuth` usage. Register the new manifest and approve the policies as above before the first call.
+
+## Virtual machine without Docker
+
+`systemd/` has a unit and its environment file for the jar (`mcp-app/target/mcp-jira.jar` after `./mvnw verify`). The variables are
+the ones of `mcp-jira.env`, with the stores at `/etc/mcp-jira/tls`.
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin mcp
+sudo install -d -o root -g mcp -m 0750 /opt/mcp-jira /etc/mcp-jira /etc/mcp-jira/tls
+sudo install -o root -g mcp -m 0640 mcp-jira.jar /opt/mcp-jira/mcp-jira.jar
+sudo install -o root -g mcp -m 0640 systemd/mcp-jira.env.template /etc/mcp-jira/mcp-jira.env   # then fill it in
+sudo install -m 0644 systemd/mcp-jira.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now mcp-jira
+```
+
+Health over mTLS (the probe certificate comes from the same CA):
+
+```bash
+curl -fsS --cacert ca.crt --cert probe.crt --key probe.key https://mcp-jira.internal:8443/actuator/health
+```
+
+Update: keep the old jar for a rollback, replace it and restart.
+
+```bash
+sudo cp -a /opt/mcp-jira/mcp-jira.jar /opt/mcp-jira/mcp-jira.jar.bak
+sudo install -o root -g mcp -m 0640 new-mcp-jira.jar /opt/mcp-jira/mcp-jira.jar
+sudo systemctl restart mcp-jira
+```
