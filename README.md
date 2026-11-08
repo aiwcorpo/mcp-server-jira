@@ -50,7 +50,7 @@ export JAVA_HOME=/path/to/jdk-25
 
 The tests need neither Docker nor a Jira. `TestGateway` from `mcp-platform-test` publishes a JWKS made from the contract test
 keys and signs internal JWTs, and `StubBackend` answers like the Jira REST API. `./mvnw verify` also leaves the manifest in
-`mcp-app/target/mcp-manifest.json`; register it in the gateway and approve new `UPDATE` and `DESTRUCTIVE` tools there.
+`mcp-app/target/mcp-manifest.json`; it is the document the running server serves at `/.well-known/mcp-manifest` for the gateway to pull, and an administrator approves every new or changed tool there.
 `docker build -t mcp-jira:dev .` builds the container image (`Dockerfile`, `eclipse-temurin:25-jre`, port 8443) from that jar and needs a Docker daemon. The GitHub, GitLab and Jenkins files run `./mvnw -B verify`.
 
 ## Policies
@@ -74,7 +74,7 @@ manifest, and an administrator has to approve it before the server decides anyth
 ## Running against a real Jira
 
 `.run/` has two IntelliJ configurations. Start `LocalGateway` (the gateway of `mcp-platform-test` on `http://127.0.0.1:18500/mcp`,
-serving the JWKS and the policy data on port 18445 with the policies of this working tree and the mapping in
+serving the JWKS on port 18445 and pushing the policy data to the server with the policies of this working tree and the mapping in
 `.run/scope-mapping.json`), then `McpJira (dev, behind LocalGateway)` with `MCP_JIRA_URL` set to your Jira. Connect an MCP client to
 the gateway with `Authorization: Bearer <your PAT>`. Edit `.run/scope-mapping.json` and the `--groups` of the `LocalGateway`
 configuration for your project keys, and restart `LocalGateway` after a change to the policies (it approves the hash of the files
@@ -87,16 +87,14 @@ server does not start without these:
 
 | Variable | Meaning |
 | --- | --- |
-| `MCP_TLS_KEYSTORE`, `MCP_TLS_TRUSTSTORE`, `MCP_TLS_STORE_PASSWORD` | PKCS12 server certificate and the internal CA |
-| `MCP_GATEWAY_JWKS_URI` | JWKS of the gateway's internal JWT, `https` only |
+| `MCP_GATEWAY_JWKS_URI` | public key set of the gateway's internal JWT: `https://<domain of the platform>/.well-known/mcp-jwks.json` |
 | `MCP_CONNECT_URL` | portal page where a user connects an account; returned in `credential_required` |
 | `MCP_JIRA_URL` | base address of Jira without `/rest/api/2`; `https` only |
-| `MCP_GATEWAY_POLICY_DATA_URL` | policy data of the gateway (`/internal/v1/policy-data`), `https` only, fetched with this server's own certificate |
-| `MCP_INTERNAL_URL` | server address written to the manifest |
 
 Also used: `MCP_JIRA_SSL_BUNDLE` (SSL bundle for a Jira with an internal CA), `MCP_PAGING_CURSOR_KEY` (Base64, at least 32 bytes,
-the same on every instance; `openssl rand -base64 32`), `MCP_REDIS_*` (one-time `jti` store, ACL user `mcp-jira`) and
-`MCP_PORT`/`MCP_BIND` (default `8443`, `0.0.0.0`). `MCP_JIRA_ALLOW_PLAIN_HTTP=true` allows `http` and exists only for the
+optional for one instance (kept in the state directory), required and the same on every instance for several; `openssl rand -base64 32`), `MCP_TLS_CERT` and `MCP_TLS_KEY`, or `MCP_TLS_KEYSTORE` with `MCP_TLS_STORE_PASSWORD` (your own certificate; without them the server generates a
+self-signed one into `MCP_STATE_DIR`, and `MCP_PLAIN_HTTP=true` means no TLS inside the platform network), `MCP_REDIS_HOST` and the other `MCP_REDIS_*`
+(one-time `jti` in Redis instead of memory: for several instances behind a balancer, which also need the same `MCP_PAGING_CURSOR_KEY`) and `MCP_PORT`/`MCP_BIND` (default `8443`, `0.0.0.0`). `MCP_JIRA_ALLOW_PLAIN_HTTP=true` allows `http` and exists only for the
 mocks of the development stack. The full list with defaults is in `docs/reference/env-servers.md` of `mcp-docs`.
 
 The account behind a PAT needs the matching Jira project permissions (Browse Projects for reads, Create Issues, Edit Issues,

@@ -16,7 +16,7 @@ In scope: the code in this repository (tools, the Jira adapter, resolvers, the v
 
 Out of scope:
 
-- The `dev` profile relaxes TLS, mTLS and the replay store by design; it listens on the loopback address only and
+- The `dev` profile relaxes TLS and the replay store by design; it listens on the loopback address only and
   is refused in a container, a Kubernetes pod and under systemd.
 - The gateway, the credential broker, the policies and the starter are separate repositories.
 - Jira itself, and permissions of the account whose personal access token the user connects.
