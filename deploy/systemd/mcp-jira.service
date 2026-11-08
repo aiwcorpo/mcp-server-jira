@@ -1,7 +1,7 @@
 # systemd unit: /etc/systemd/system/mcp-jira.service
 #   systemctl daemon-reload && systemctl enable --now mcp-jira
 [Unit]
-Description=MCP server mcp-jira (behind the MCP gateway, mTLS)
+Description=MCP server mcp-jira (behind the MCP gateway)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,9 @@ Wants=network-online.target
 Type=simple
 User=mcp
 Group=mcp
-# Secrets and addresses (mcp-jira.env.template); logs go to journald.
+# Secrets and addresses (mcp-jira.env.template); logs go to journald (the fingerprint of the certificate is in the first lines).
+# /var/lib/mcp-jira holds the generated certificate and the cursor key between starts.
+StateDirectory=mcp-jira
 EnvironmentFile=/etc/mcp-jira/mcp-jira.env
 ExecStart=/usr/bin/java -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -jar /opt/mcp-jira/mcp-jira.jar
 
