@@ -14,7 +14,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Runs after package (failsafe): the file of the build, {@code mcp-app/target/mcp-manifest.json}, is what the server
- * publishes at {@code GET /mcp-manifest}. The test context overrides the version and the address of the manifest, so
+ * publishes at {@code GET /.well-known/mcp-manifest}. The test context overrides the version and the address of the manifest, so
  * those two are left out of the comparison. The file is written by {@link ManifestExport} from the production
  * configuration without starting the server.
  */
@@ -25,8 +25,8 @@ class ManifestArtifactIT extends ServerTestSupport {
     @Test
     void theBuildArtifactIsTheManifestTheServerPublishes() throws Exception {
         HttpResponse<String> served = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(baseUrl() + "/mcp-manifest"))
-                        .headers(GATEWAY.service().mint().headers().entrySet().stream()
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/.well-known/mcp-manifest"))
+                        .headers(GATEWAY.manifestToken().mint().headers().entrySet().stream()
                                 .flatMap(e -> java.util.stream.Stream.of(e.getKey(), e.getValue()))
                                 .toArray(String[]::new))
                         .GET().build(),
