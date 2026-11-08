@@ -26,9 +26,6 @@ class ManifestArtifactIT extends ServerTestSupport {
     void theBuildArtifactIsTheManifestTheServerPublishes() throws Exception {
         HttpResponse<String> served = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(URI.create(baseUrl() + "/.well-known/mcp-manifest"))
-                        .headers(GATEWAY.manifestToken().mint().headers().entrySet().stream()
-                                .flatMap(e -> java.util.stream.Stream.of(e.getKey(), e.getValue()))
-                                .toArray(String[]::new))
                         .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         JsonNode artifact = JSON.readTree(Files.readString(MANIFEST_FILE));
