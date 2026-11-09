@@ -70,11 +70,11 @@ final class JiraToolViews {
             List<LinkItem> links, boolean linksTruncated) {
 
         /** @param readable the links to issues the caller may read; the others are not counted or shown */
-        static IssueView of(JiraIssue issue, List<IssueLink> readable) {
+        static IssueView of(JiraIssue issue, List<IssueLink> readable, boolean rawCut) {
             return new IssueView(issue.key(), issue.projectKey(), JiraToolViews.name(issue.type()), JiraToolViews.name(issue.status()),
                     JiraToolViews.username(issue.assignee()), timestamp(issue.updated()), summaryText(issue.summary()),
                     JiraWikiText.plain(issue.description(), MAX_DESCRIPTION),
-                    readable.stream().limit(MAX_LINKS).map(LinkItem::of).toList(), readable.size() > MAX_LINKS);
+                    readable.stream().limit(MAX_LINKS).map(LinkItem::of).toList(), rawCut || readable.size() > MAX_LINKS);
         }
     }
 
@@ -166,40 +166,69 @@ final class JiraToolViews {
     }
 
     record ChangelogItem(String id, @Nullable UntrustedText author, @Nullable String created,
-            List<FieldChangeItem> changes, boolean redacted) {
+            List<FieldChangeItem> changes) {
 
-        /** @param readableKeys keys of the issues named in the page that the caller may read */
-        static ChangelogItem of(ChangelogEntry entry, java.util.Set<String> readableKeys) {
-            boolean[] redacted = {false};
-            List<FieldChangeItem> changes = entry.changes().stream().limit(MAX_CHANGES_PER_ENTRY).map(c -> {
-                if (refersToOtherResources(c.field()) && !readable(c, readableKeys)) {
-                    redacted[0] = true;
-                    return new FieldChangeItem(name(c.field()), null, null);
-                }
-                return new FieldChangeItem(name(c.field()),
-                        c.from() == null ? null : UntrustedText.plain(c.from(), MAX_CHANGE_TEXT),
-                        c.to() == null ? null : UntrustedText.plain(c.to(), MAX_CHANGE_TEXT));
-            }).toList();
-            return new ChangelogItem(entry.id(),
+        /**
+         * The entry as the caller may see it, or empty when nothing of it may be shown. Nothing marks what was left out: a
+         * change that would name an issue of a project the caller may not read is dropped whole, so its existence does not
+         * show either.
+         *
+         * @param readableProjects keys of the projects named in the page that the policy allows the caller to read
+         */
+        static java.util.Optional<ChangelogItem> of(ChangelogEntry entry, java.util.Set<String> readableProjects) {
+            List<FieldChangeItem> changes = entry.changes().stream()
+                    .map(change -> visible(change, entry.beforeProjectChange(), readableProjects))
+                    .flatMap(java.util.Optional::stream).limit(MAX_CHANGES_PER_ENTRY).toList();
+            if (changes.isEmpty()) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(new ChangelogItem(entry.id(),
                     entry.author() == null ? null : UntrustedText.plain(entry.author(), MAX_USERNAME),
-                    timestamp(entry.created()), changes, redacted[0]);
+                    timestamp(entry.created()), changes));
         }
 
-        /** True when a text was cut or the entry has more field changes than are shown. */
+        /** True when a text was cut or the entry has more visible field changes than are shown. */
         static boolean truncated(ChangelogEntry entry, ChangelogItem item) {
             return entry.changes().size() > MAX_CHANGES_PER_ENTRY
                     || item.changes().stream().anyMatch(c -> c.from() != null && c.from().truncated()
                             || c.to() != null && c.to().truncated());
         }
 
-        private static boolean readable(ChangelogEntry.FieldChange change, java.util.Set<String> readableKeys) {
-            // The project field holds project names and ids, which cannot be judged by key: never shown.
-            return !"project".equalsIgnoreCase(change.field()) && readableKeys.containsAll(referencedKeys(change));
+        private static java.util.Optional<FieldChangeItem> visible(ChangelogEntry.FieldChange change, boolean beforeProjectChange,
+                java.util.Set<String> readableProjects) {
+            String field = name(change.field());
+            if (refersToOtherResources(change.field())) {
+                // A reference field is shown only when its value is nothing but readable issue keys: no key, other text
+                // next to the keys or one unreadable key is no proof that nothing leaks, so the change is dropped.
+                return pureReadableKeys(change.from(), readableProjects) && pureReadableKeys(change.to(), readableProjects)
+                        ? java.util.Optional.of(item(field, change.from(), change.to(), readableProjects))
+                        : java.util.Optional.empty();
+            }
+            if (beforeProjectChange && boundToProject(change.field())) {
+                return java.util.Optional.of(new FieldChangeItem(field, null, null));
+            }
+            return java.util.Optional.of(item(field, change.from(), change.to(), readableProjects));
+        }
+
+        private static FieldChangeItem item(String field, String from, String to, java.util.Set<String> readableProjects) {
+            return new FieldChangeItem(field,
+                    from == null ? null : UntrustedText.plain(hideKeys(from, readableProjects), MAX_CHANGE_TEXT),
+                    to == null ? null : UntrustedText.plain(hideKeys(to, readableProjects), MAX_CHANGE_TEXT));
         }
     }
 
+    static final String HIDDEN_ISSUE = "<hidden-issue>";
+
     private static final java.util.regex.Pattern ISSUE_KEY_IN_TEXT = java.util.regex.Pattern
             .compile("(?<![A-Za-z0-9_])[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}(?![A-Za-z0-9_])");
+
+    /** Fields of a workflow scheme, version, component or sprint of the project the issue was in at the time. */
+    private static final java.util.Set<String> PROJECT_BOUND_FIELDS = java.util.Set.of("workflow", "fix version/s",
+            "version/s", "component/s", "sprint", "fix version", "affects version/s", "component", "affects version");
+
+    static boolean boundToProject(String field) {
+        return field != null && PROJECT_BOUND_FIELDS.contains(field.toLowerCase(java.util.Locale.ROOT));
+    }
 
     /**
      * Fields whose old and new value point at other issues or projects (Link, Parent, Parent Link, Epic Link, Epic Child,
@@ -215,15 +244,37 @@ final class JiraToolViews {
                 || lower.contains("epic") || lower.contains("sub-task") || lower.contains("subtask");
     }
 
-    /** Issue keys in the old and the new value of a change. */
-    static java.util.Set<String> referencedKeys(ChangelogEntry.FieldChange change) {
-        java.util.Set<String> keys = new java.util.LinkedHashSet<>();
+    /** The project keys of the issue keys in the old and the new value of a change. */
+    static java.util.Set<String> referencedProjects(ChangelogEntry.FieldChange change) {
+        java.util.Set<String> projects = new java.util.LinkedHashSet<>();
         for (String text : new String[] {change.from(), change.to()}) {
             if (text != null) {
-                ISSUE_KEY_IN_TEXT.matcher(text).results().forEach(m -> keys.add(m.group()));
+                ISSUE_KEY_IN_TEXT.matcher(text).results().forEach(m -> projects.add(projectOf(m.group())));
             }
         }
-        return keys;
+        return projects;
+    }
+
+    private static String projectOf(String issueKey) {
+        return issueKey.substring(0, issueKey.lastIndexOf('-'));
+    }
+
+    /** Every issue key of a project that is not readable becomes a token; the keys are judged by project, not by issue. */
+    static String hideKeys(String text, java.util.Set<String> readableProjects) {
+        return ISSUE_KEY_IN_TEXT.matcher(text).replaceAll(m -> readableProjects.contains(projectOf(m.group()))
+                ? java.util.regex.Matcher.quoteReplacement(m.group()) : HIDDEN_ISSUE);
+    }
+
+    /** A blank value is nothing to hide; any other value must be issue keys of readable projects and only that. */
+    private static boolean pureReadableKeys(String text, java.util.Set<String> readableProjects) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        java.util.List<String> keys = ISSUE_KEY_IN_TEXT.matcher(text).results().map(m -> m.group()).toList();
+        if (keys.isEmpty() || !keys.stream().allMatch(key -> readableProjects.contains(projectOf(key)))) {
+            return false;
+        }
+        return ISSUE_KEY_IN_TEXT.matcher(text).replaceAll("").replaceAll("[\\s,;]+", "").isEmpty();
     }
 
     record StatusItem(String name, @Nullable String category) {

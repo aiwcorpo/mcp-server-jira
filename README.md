@@ -43,16 +43,21 @@ is required, schema type, at most 20 allowed values per field), link types (`lis
 and editing issues, assignment, links, worklogs and watchers. Search queries are built by the server from structured arguments;
 no tool accepts raw JQL.
 
-`read_attachment` returns text types only (`text/*`, JSON, XML), up to 200000 bytes, cut at 50000 characters; other files come back
+`read_attachment` returns text types only (`text/*`, JSON, XML) that decode as strict UTF-8 without NUL bytes (anything else is `binary_attachment`), up to 200000 bytes, cut at 50000 characters; other files come back
 empty with `omitted` set to `binary_attachment` or `attachment_too_large`. The file is downloaded from the configured Jira
 address, never from the `content` link in Jira's answer.
 
 `get_issue` also lists the links of the issue (link id, type name, direction with its sentence, key of the other issue; at most 50,
-`linksTruncated`). Links to issues the caller may not read are dropped before the limit, so neither their keys nor their number show.
+`linksTruncated`; the first 200 links are judged). Links to issues the caller may not read are dropped before the limit, so neither their keys nor their number show.
 
-`get_issue_changelog` leaves out (null) the old and new value of fields that point at other issues or projects (Link, Parent, Epic
-Link, Key, Sub-task and similar names) when they name an issue the caller may not read, and marks the change `redacted`. The
-`project` field is always left out, because it holds names that cannot be judged by key.
+`get_issue_changelog` judges every issue key in the old and new values by its project (the policy decision on `Jira::Project`,
+once per project in a call, never by resolving the issue, because an old key of a moved issue would resolve to its new project).
+A key of a project the caller may not read is replaced by `<hidden-issue>`. A change of a field that points at other issues or
+projects (Link, Parent, Parent Link, Epic Link, Epic Child, Key, Sub-task, project and any name containing link, parent, epic,
+sub-task) is shown only when its value is nothing but keys of readable projects; otherwise the whole change is left out, with no
+marker, and an entry left without changes is left out too, so a page can be shorter than 25. Link changes read "This issue blocks
+ABC-5", which has text besides the key, so they are always left out. Workflow, Fix Version/s, Version/s, Component/s and Sprint
+values of entries older than the last change of the `project` field are null.
 
 `add_watcher` adds the given user, or the caller when no username is given. `unwatch_issue` removes the caller only: a tool that
 takes other users off a watcher list is not offered. `remove_issue_link` is `DESTRUCTIVE` like `delete_issue`: it needs the destructive
@@ -68,8 +73,8 @@ behind them:
 
 | Tool | Argument | Judged by |
 | --- | --- | --- |
-| `list_boards` | `project` | the project (as `search_issues`); boards located in a project the policy does not allow are left out |
-| `list_sprints` | `boardId` | every project of the board (`/board/{id}/project`) |
+| `list_boards` | `project` | the project (as `search_issues`); boards located in a project the policy does not allow, or without a recognized location, are left out |
+| `list_sprints` | `boardId` | every project of the board (`/board/{id}/project`); a sprint created on another board is listed only when that board passes the same check |
 | `list_sprint_issues` | `sprintId` | every project of the board the sprint belongs to, then each issue by the issue policy, as `search_issues` does |
 
 A board with a project the caller may not read, with no readable project, with more than 50 projects, or whose project list Jira

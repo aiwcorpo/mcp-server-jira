@@ -8,6 +8,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogEntry;
 import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
@@ -131,6 +132,10 @@ public class JiraTool {
     public static final int MAX_NAME = 60;
     public static final int MAX_USERNAME = 100;
     static final int MAX_TEXT = 200;
+    /** Projects judged for the keys of one changelog page; keys of further projects are hidden. */
+    static final int MAX_JUDGED_PROJECTS = 20;
+    /** Links of an issue read before any is judged; each one costs calls to Jira. */
+    static final int MAX_RAW_LINKS = 200;
     static final int MAX_BODY = 10_000;
     static final int MAX_SUMMARY = 255;
     static final int MAX_LABELS = 10;
@@ -173,8 +178,10 @@ public class JiraTool {
         JiraIssue issue = resolved(issueKey);
         // A link to an issue the caller may not read is dropped whole, before the limit, so neither a key nor a count of
         // hidden links shows.
-        List<IssueLink> readable = policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, issue.links(), IssueLink::otherKey);
-        return IssueView.of(issue, readable);
+        boolean rawCut = issue.links().size() > MAX_RAW_LINKS;
+        List<IssueLink> readable = policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE,
+                issue.links().stream().limit(MAX_RAW_LINKS).toList(), IssueLink::otherKey);
+        return IssueView.of(issue, readable, rawCut);
     }
 
     @Tool(name = "search_issues", description = "Searches issues of one Jira project, optionally filtered by "
@@ -381,9 +388,11 @@ public class JiraTool {
     @Tool(name = "get_issue_changelog", description = "Returns the change history of one Jira issue, oldest first, 25 "
             + "changes per page: id, author display name and creation time, and for each changed field its name and the "
             + "old and new value as written by Jira users, marked as untrusted data (plain text, each cut at 500 "
-            + "characters, at most 50 fields per change). Values of fields that point at other issues or projects are "
-            + "left out (null) when they name an issue the caller may not read, and the change is then marked redacted. "
-            + "Pass nextCursor back to get the next page.")
+            + "characters, at most 50 fields per change). Issue keys of projects the caller may not read are replaced by "
+            + "<hidden-issue>. A change of a field that points at other issues or projects (Link, Parent, Epic Link, "
+            + "project ...) is left out whole unless its value is nothing but readable issue keys, and an entry without "
+            + "visible changes is left out, so a page can be shorter than 25. Workflow, version, component and sprint "
+            + "values of entries older than the last project change are null. Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Get issue changelog")
     public PagedResult<ChangelogItem> getIssueChangelog(
@@ -397,17 +406,21 @@ public class JiraTool {
         String key = resolved(issueKey).key();
         String fingerprint = CursorCodec.fingerprint("get_issue_changelog", key);
         ChangelogPage page = useCase.changelog(key, position(cursor, "get_issue_changelog", fingerprint));
-        // Values of fields that point at other issues can carry keys of projects the caller may not read; they are judged
-        // by the issue policy and shown only when every key in them is allowed.
-        List<String> referenced = page.entries().stream().flatMap(entry -> entry.changes().stream())
-                .filter(change -> JiraToolViews.refersToOtherResources(change.field()))
-                .flatMap(change -> JiraToolViews.referencedKeys(change).stream()).distinct().toList();
-        java.util.Set<String> readableKeys = referenced.isEmpty() ? java.util.Set.of()
-                : new java.util.HashSet<>(policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, referenced, k -> k));
-        List<ChangelogItem> items = page.entries().stream().map(entry -> ChangelogItem.of(entry, readableKeys)).toList();
+        // Keys in the values of the changes are judged by their project, once per project in this call, and never by
+        // resolving the issue: an old key of an issue that has moved would resolve to its new project.
+        List<String> named = page.entries().stream().flatMap(entry -> entry.changes().stream())
+                .flatMap(change -> JiraToolViews.referencedProjects(change).stream()).distinct().toList();
+        List<String> judged = named.stream().limit(MAX_JUDGED_PROJECTS).toList();
+        java.util.Set<String> readableProjects = judged.isEmpty() ? java.util.Set.of()
+                : new java.util.HashSet<>(policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE, judged, k -> k));
+        List<ChangelogItem> items = new java.util.ArrayList<>();
         boolean truncated = false;
-        for (int i = 0; i < items.size(); i++) {
-            truncated |= ChangelogItem.truncated(page.entries().get(i), items.get(i));
+        for (ChangelogEntry entry : page.entries()) {
+            var item = ChangelogItem.of(entry, readableProjects);
+            if (item.isPresent()) {
+                items.add(item.get());
+                truncated |= ChangelogItem.truncated(entry, item.get());
+            }
         }
         return new PagedResult<>(items, nextCursor("get_issue_changelog", fingerprint, page.nextStartAt()), truncated,
                 List.of());
@@ -514,7 +527,7 @@ public class JiraTool {
      */
     @Tool(name = "list_boards", description = "Lists the Jira Software boards (scrum and kanban) relevant to one "
             + "project: id, name as written by Jira users (untrusted data), type and the project the board is located "
-            + "in, 25 per page. Boards located in a project the platform policy does not allow are left out. Needs "
+            + "in, 25 per page. Boards located in a project the platform policy does not allow, or without a known location, are left out. Needs "
             + "Jira Software. Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("List boards")
@@ -539,11 +552,9 @@ public class JiraTool {
                     return new PageFiller.BackendPage<>(found.boards(),
                             found.nextStartAt() == null ? null : found.nextStartAt().toString());
                 },
-                rows -> {
-                    List<JiraBoard> located = policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE,
-                            rows.stream().filter(board -> board.projectKey() != null).toList(), JiraBoard::projectKey);
-                    return rows.stream().filter(board -> board.projectKey() == null || located.contains(board)).toList();
-                });
+                // A board without a recognized location cannot be judged and is not listed.
+                rows -> policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE,
+                        rows.stream().filter(board -> board.projectKey() != null).toList(), JiraBoard::projectKey));
         return PagedResult.of(page.items().stream().map(BoardItem::of).toList(),
                 nextCursor("list_boards", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())));
     }
@@ -568,7 +579,13 @@ public class JiraTool {
         int startAt = position(cursor, "list_sprints", fingerprint);
         requireBoardAllowed(boardId);
         SprintPage page = useCase.listSprints(boardId, state, startAt);
-        List<SprintItem> items = page.sprints().stream().map(SprintItem::of).toList();
+        // A sprint can be listed on a board other than the one it was created on, and that board can cover other projects.
+        java.util.Map<String, Boolean> judged = new java.util.HashMap<>();
+        judged.put(boardId, true);
+        List<SprintItem> items = page.sprints().stream()
+                .filter(sprint -> sprint.originBoardId() != null
+                        && judged.computeIfAbsent(sprint.originBoardId(), this::boardAllowed))
+                .map(SprintItem::of).toList();
         boolean truncated = items.stream().anyMatch(sprint -> sprint.name().truncated()
                 || sprint.goal() != null && sprint.goal().truncated());
         return new PagedResult<>(items, nextCursor("list_sprints", fingerprint, page.nextStartAt()), truncated, List.of());
@@ -959,9 +976,23 @@ public class JiraTool {
      */
     private void requireBoardAllowed(String boardId) {
         List<String> keys = useCase.boardProjectKeys(boardId);
-        if (keys.isEmpty() || policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE, keys, key -> key).size() != keys.size()) {
+        if (!allProjectsAllowed(keys)) {
             throw new NotFoundOrDeniedException();
         }
+    }
+
+    /** As {@link #requireBoardAllowed}, for a board the caller did not name: a board Jira does not show is not allowed either. */
+    private boolean boardAllowed(String boardId) {
+        try {
+            return allProjectsAllowed(useCase.boardProjectKeys(boardId));
+        } catch (NotFoundOrDeniedException hidden) {
+            return false;
+        }
+    }
+
+    private boolean allProjectsAllowed(List<String> keys) {
+        return !keys.isEmpty()
+                && policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE, keys, key -> key).size() == keys.size();
     }
 
     /** The offset a cursor carries, 0 without one. A cursor of another user, tool or query is refused by the codec. */

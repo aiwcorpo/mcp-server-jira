@@ -35,8 +35,10 @@ Major release: the policies of the server live in this repository. Built on `mcp
 - Watchers and links: `add_watcher` and `unwatch_issue` (removes the caller only), both `UPDATE`, and `remove_issue_link` (by link id, on both
   issues like `link_issues`), which is `DESTRUCTIVE` like `delete_issue`. `get_issue` returns `links` (id, type, direction, key of the other issue)
   for the issues the caller may read, at most 50 with `linksTruncated`.
-- `get_issue_changelog` redacts values of reference fields (Link, Parent, Epic Link, Key, project ...) that name an issue the caller may not read
-  (`redacted`). A board whose project list Jira does not return in full is refused like a missing board.
+- `get_issue_changelog` judges issue keys by project: keys of unreadable projects become `<hidden-issue>`, changes of reference fields are shown only
+  when they are nothing but readable keys (otherwise left out whole), and project-bound fields of entries older than the last project change are null.
+  `list_boards` drops boards without a recognized location, `list_sprints` checks the origin board of each sprint, `read_attachment` treats a file that is
+  not strict UTF-8 text as binary, `get_issue` judges at most 200 links, and a board whose project list is not proven complete is refused.
 - `deploy/` has `compose.yaml`, `mcp-jira.env` and `certs/` next to the systemd files, and the procedure that adds the system
   `jira` in the broker and the server `mcp-jira` in the gateway without restarting anything.
 - `.run/` has IntelliJ configurations for the server and for the `LocalGateway` of `mcp-platform-test`, with the policies directory and a scope mapping.

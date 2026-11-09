@@ -66,25 +66,43 @@ class CatalogReadToolsTest extends ServerTestSupport {
     }
 
     @Test
-    void valuesNamingIssuesTheCallerMayNotReadAreRedactedWithoutAReason() {
+    void keysOfUnreadableProjectsAreHiddenAndReferenceChangesWithoutProofAreLeftOut() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult result = call(client, "get_issue_changelog", Map.of("issueKey", "ABC-63"));
 
             JsonNode page = json(result);
-            assertThat(page.at("/items/0/redacted").asBoolean()).as("link to a readable issue").isFalse();
-            assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("This issue relates to ABC-2");
-            assertThat(page.at("/items/1/redacted").asBoolean()).isTrue();
-            assertThat(page.at("/items/1/changes/0/field").asString()).isEqualTo("Link");
-            assertThat(page.at("/items/1/changes/0/to").isNull()).isTrue();
-            assertThat(page.at("/items/1/changes/1/from").isNull()).as("one restricted key hides both values").isTrue();
-            assertThat(page.at("/items/2/redacted").asBoolean()).isTrue();
-            assertThat(page.at("/items/2/changes/0/from").isNull()).isTrue();
-            assertThat(page.at("/items/3/redacted").asBoolean()).as("the project field is never shown").isTrue();
-            assertThat(page.at("/items/3/changes/1/from").isNull()).isTrue();
-            assertThat(page.at("/items/3/changes/0/from/text").asString()).as("not a reference field").isEqualTo("see HR-1");
-            assertThat(page.at("/items/4/redacted").asBoolean()).as("an issue that cannot be resolved is not shown").isTrue();
-            assertThat(text(result)).doesNotContain("Human Resources");
-            assertThat(text(result)).doesNotContain("relates to HR-1");
+            assertThat(page.at("/items")).extracting(item -> item.get("id").asString())
+                    .as("a link with other text, to a restricted issue, to a moved issue and without a key leave no entry")
+                    .containsExactly("50004", "50005", "50006");
+            assertThat(page.at("/items/0/changes")).as("the project change is gone, the summary stays").hasSize(1);
+            assertThat(page.at("/items/0/changes/0/from/text").asString()).isEqualTo("see <hidden-issue> and ABC-2");
+            assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("see <hidden-issue>");
+            assertThat(page.at("/items/1/changes/0/field").asString()).isEqualTo("Parent");
+            assertThat(page.at("/items/1/changes/0/from/text").asString()).as("a key of a readable project alone").isEqualTo("ABC-404");
+            assertThat(page.at("/items/1/changes/0/to/text").asString()).isEqualTo("ABC-2");
+            assertThat(page.at("/items/2/changes/0/field").asString()).isEqualTo("Root cause");
+            assertThat(page.at("/items/2/changes/0/to/text").asString()).isEqualTo("Root cause: <hidden-issue> and ABC-2");
+            assertThat(page.toString()).doesNotContain("redacted", "HR-1", "HR-2", "SEC-12", "SEC-5", "ABC-9", "Human Resources",
+                    "Salary", "epic without");
+        }
+        assertThat(BACKEND.requests()).as("keys are judged by their project, never by resolving the issue")
+                .extracting(StubBackend.Request::path).doesNotContain("/rest/api/2/issue/SEC-5", "/rest/api/2/issue/HR-1");
+    }
+
+    @Test
+    void valuesBoundToTheProjectAreNullInEntriesOlderThanTheLastProjectChange() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode page = json(call(client, "get_issue_changelog", Map.of("issueKey", "ABC-64")));
+
+            assertThat(page.at("/items")).extracting(item -> item.get("id").asString()).containsExactly("60001", "60003");
+            assertThat(page.at("/items/0/changes/0/field").asString()).isEqualTo("Workflow");
+            assertThat(page.at("/items/0/changes/0/from").isNull()).isTrue();
+            assertThat(page.at("/items/0/changes/0/to").isNull()).isTrue();
+            assertThat(page.at("/items/0/changes/1/to").isNull()).isTrue();
+            assertThat(page.at("/items/0/changes/2/to/text").asString()).as("status is not bound to the project").isEqualTo("Done");
+            assertThat(page.at("/items/1/changes/0/to/text").asString()).isEqualTo("Backend");
+            assertThat(page.at("/items/1/changes/1/to/text").asString()).isEqualTo("Sprint 1");
+            assertThat(page.toString()).doesNotContain("HR approval", "HR 1.0");
         }
     }
 
@@ -120,11 +138,23 @@ class CatalogReadToolsTest extends ServerTestSupport {
     }
 
     @Test
+    void onlyTheFirstTwoHundredLinksAreJudgedAndTheResultSaysSo() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode issue = json(call(client, "get_issue", Map.of("issueKey", "ABC-65")));
+
+            assertThat(issue.at("/links")).hasSize(50);
+            assertThat(issue.at("/linksTruncated").asBoolean()).isTrue();
+        }
+        assertThat(BACKEND.requests().stream().map(StubBackend.Request::path).filter(path -> path.startsWith("/rest/api/2/issue/ABC-1")))
+                .as("at most 200 linked issues were resolved, 60 distinct ones, each once").hasSizeLessThanOrEqualTo(61);
+    }
+
+    @Test
     void anUnrelatedChangeIsNotRedacted() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             JsonNode page = json(call(client, "get_issue_changelog", Map.of("issueKey", "ABC-1")));
 
-            assertThat(page.at("/items")).allSatisfy(item -> assertThat(item.get("redacted").asBoolean()).isFalse());
+            assertThat(page.at("/items")).hasSize(3);
             assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("In Progress");
         }
     }
@@ -377,6 +407,18 @@ class CatalogReadToolsTest extends ServerTestSupport {
             assertThat(big.at("/content/text").asString()).isEmpty();
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::path).noneMatch(path -> path.startsWith("/secure/"));
+    }
+
+    @Test
+    void aFileDeclaredAsTextThatIsNotUtf8TextIsBinary() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            for (String id : List.of("30008", "30009")) {
+                JsonNode view = json(call(client, "read_attachment", Map.of("issueKey", "ABC-45", "attachmentId", id)));
+
+                assertThat(view.at("/omitted/0").asString()).as(id).isEqualTo("binary_attachment");
+                assertThat(view.at("/content/text").asString()).as(id).isEmpty();
+            }
+        }
     }
 
     @Test

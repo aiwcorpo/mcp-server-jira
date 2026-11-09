@@ -644,9 +644,29 @@ public class JiraResourceAdapter implements JiraResourcePort {
         if (data.isEmpty()) {
             return Optional.empty();
         }
-        String text = TextHygiene.normalize(new String(data.get(), StandardCharsets.UTF_8));
+        Optional<String> decoded = strictUtf8(data.get());
+        if (decoded.isEmpty()) {
+            return Optional.of(new AttachmentText(file, "", false, "binary_attachment"));
+        }
+        String text = TextHygiene.normalize(decoded.get());
         String cut = UntrustedText.cut(text, maxChars);
         return Optional.of(new AttachmentText(file, cut, cut.length() < text.length(), null));
+    }
+
+    /** UTF-8 without NUL bytes; a file that is not counts as binary whatever its declared type. */
+    private static Optional<String> strictUtf8(byte[] bytes) {
+        for (byte b : bytes) {
+            if (b == 0) {
+                return Optional.empty();
+            }
+        }
+        try {
+            return Optional.of(StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes)).toString());
+        } catch (java.nio.charset.CharacterCodingException notText) {
+            return Optional.empty();
+        }
     }
 
     private static boolean isTextMedia(String mediaType) {
@@ -1167,12 +1187,17 @@ public class JiraResourceAdapter implements JiraResourcePort {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record History(String id, HistoryAuthor author, String created, List<HistoryItem> items) {
 
-        ChangelogEntry toDomain() {
+        ChangelogEntry toDomain(boolean beforeProjectChange) {
             List<ChangelogEntry.FieldChange> changes = new ArrayList<>();
             for (HistoryItem item : items == null ? List.<HistoryItem>of() : items) {
                 changes.add(new ChangelogEntry.FieldChange(item.field(), item.fromValue(), item.toValue()));
             }
-            return new ChangelogEntry(requireId(id, "change"), author == null ? null : author.displayName(), created, changes);
+            return new ChangelogEntry(requireId(id, "change"), author == null ? null : author.displayName(), created, changes, beforeProjectChange);
+        }
+
+        boolean changesProject() {
+            return (items == null ? List.<HistoryItem>of() : items).stream()
+                    .anyMatch(item -> "project".equalsIgnoreCase(item.field()));
         }
     }
 
@@ -1190,8 +1215,17 @@ public class JiraResourceAdapter implements JiraResourcePort {
             List<History> all = changelog == null || changelog.histories() == null ? List.of() : changelog.histories();
             int from = Math.min(startAt, all.size());
             int end = Math.min(all.size(), from + maxResults);
-            return new ChangelogPage(all.subList(from, end).stream().map(History::toDomain).toList(),
-                    end < all.size() ? end : null);
+            int lastProjectChange = -1;
+            for (int i = 0; i < all.size(); i++) {
+                if (all.get(i).changesProject()) {
+                    lastProjectChange = i;
+                }
+            }
+            List<ChangelogEntry> entries = new ArrayList<>();
+            for (int i = from; i < end; i++) {
+                entries.add(all.get(i).toDomain(i < lastProjectChange));
+            }
+            return new ChangelogPage(entries, end < all.size() ? end : null);
         }
     }
 
@@ -1357,11 +1391,12 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record SprintEntry(Long id, String name, String state, String startDate, String endDate, String completeDate, String goal) {
+    record SprintEntry(Long id, String name, String state, String startDate, String endDate, String completeDate, String goal,
+            Long originBoardId) {
 
         JiraSprint toDomain() {
             return new JiraSprint(requireId(id == null ? null : String.valueOf(id), "sprint"), name == null ? "" : name,
-                    state, startDate, endDate, completeDate, goal);
+                    state, startDate, endDate, completeDate, goal, originBoardId == null ? null : String.valueOf(originBoardId));
         }
     }
 

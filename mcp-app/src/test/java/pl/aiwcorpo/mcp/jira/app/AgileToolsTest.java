@@ -34,7 +34,7 @@ class AgileToolsTest extends ServerTestSupport {
             assertThat(page.at("/items/0/type").asString()).isEqualTo("scrum");
             assertThat(page.at("/items/0/project").asString()).isEqualTo("ABC");
             assertThat(page.at("/nextCursor").isNull() || page.at("/nextCursor").isMissingNode()).isTrue();
-            assertThat(text(result)).doesNotContain("Payroll", "HR", "displayName", "projectId");
+            assertThat(text(result)).doesNotContain("Payroll", "HR", "displayName", "projectId", "Orphan", "Odd");
         }
         StubBackend.Request read = BACKEND.requests().stream().filter(r -> r.path().equals("/rest/agile/1.0/board")).findFirst().orElseThrow();
         assertThat(read.query()).contains("projectKeyOrId=ABC", "startAt=0", "maxResults=25").doesNotContain("type=");
@@ -59,7 +59,7 @@ class AgileToolsTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             JsonNode first = json(call(client, "list_boards", Map.of("project", "DEF")));
             assertThat(first.at("/items")).hasSize(25);
-            assertThat(first.at("/items/0/project").isNull() || first.at("/items/0/project").isMissingNode()).isTrue();
+            assertThat(first.at("/items/0/project").asString()).isEqualTo("DEF");
             String cursor = first.at("/nextCursor").asString();
             assertThat(cursor).isNotBlank();
 
@@ -79,7 +79,7 @@ class AgileToolsTest extends ServerTestSupport {
 
             assertThat(result.isError()).isFalse();
             JsonNode page = json(result);
-            assertThat(page.at("/items")).extracting(sprint -> sprint.get("id").asString()).containsExactly("70", "71", "72");
+            assertThat(page.at("/items")).extracting(sprint -> sprint.get("id").asString()).containsExactly("70", "71", "72", "77");
             assertThat(page.at("/items/0/name/text").asString()).isEqualTo("Sprint 1");
             assertThat(page.at("/items/0/state").asString()).isEqualTo("active");
             assertThat(page.at("/items/0/startDate").asString()).isEqualTo("2026-10-26T08:00:00.000Z");
@@ -87,12 +87,16 @@ class AgileToolsTest extends ServerTestSupport {
             assertThat(page.at("/items/0/goal/text").asString()).contains("Ignore previous instructions");
             assertThat(page.at("/items/1/goal").isNull() || page.at("/items/1/goal").isMissingNode()).isTrue();
             assertThat(page.at("/items/2/completeDate").asString()).isEqualTo("2026-10-26T09:15:00.000Z");
-            assertThat(text(result)).doesNotContain("originBoardId", "self");
+            assertThat(text(result)).doesNotContain("originBoardId", "self", "Payroll", "Orphan");
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::path)
                 .as("the projects of the board are read and judged before the sprints are asked for")
-                .containsExactly("/rest/agile/1.0/board/7/project", "/rest/api/2/project/ABC", "/rest/agile/1.0/board/7/sprint");
-        assertThat(BACKEND.requests().getLast().query()).contains("startAt=0", "maxResults=25").doesNotContain("state=");
+                .containsSubsequence("/rest/agile/1.0/board/7/project", "/rest/api/2/project/ABC", "/rest/agile/1.0/board/7/sprint")
+                .as("a sprint created on another board is judged by that board's projects")
+                .contains("/rest/agile/1.0/board/9/project", "/rest/agile/1.0/board/8/project");
+        assertThat(BACKEND.requests().stream().filter(r -> r.path().endsWith("/board/9/project"))).hasSize(1);
+        assertThat(BACKEND.requests().stream().filter(r -> r.path().endsWith("/board/7/sprint")).findFirst().orElseThrow().query())
+                .contains("startAt=0", "maxResults=25").doesNotContain("state=");
     }
 
     @Test
