@@ -872,7 +872,7 @@ final class StubBackend {
             case "9" -> List.of("ABC", "HR");
             case "11" -> List.of("HR");
             case "12" -> List.of();
-            case "14", "15" -> List.of("ABC");
+            case "14", "15", "16" -> List.of("ABC");
             case "10" -> java.util.stream.IntStream.range(0, maxResults).mapToObj(i -> "P" + i).toList();
             default -> null;
         };
@@ -887,6 +887,10 @@ final class StubBackend {
         }
         if ("15".equals(board)) {
             respond(exchange, 200, "{\"maxResults\":1,\"startAt\":0,\"total\":3,\"values\":[" + rows + "]}");
+            return;
+        }
+        if ("16".equals(board)) {
+            respond(exchange, 200, "{\"maxResults\":1,\"startAt\":0,\"values\":[" + rows + "]}");
             return;
         }
         respond(exchange, 200, "{\"maxResults\":%d,\"startAt\":0,\"total\":%d,\"isLast\":true,\"values\":[%s]}".formatted(maxResults, keys.size(), rows));

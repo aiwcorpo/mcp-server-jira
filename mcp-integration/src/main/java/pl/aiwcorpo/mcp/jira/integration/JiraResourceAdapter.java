@@ -1346,7 +1346,10 @@ public class JiraResourceAdapter implements JiraResourcePort {
             if (values == null) {
                 throw new BackendResponseException("board projects missing");
             }
-            if (Boolean.FALSE.equals(last) || total != null && (total > values.size() || total > limit - 1)) {
+            // Complete only when Jira says so: a response without isLast and total proves nothing.
+            boolean complete = Boolean.TRUE.equals(last) && (total == null || total == values.size())
+                    || !Boolean.FALSE.equals(last) && total != null && total == values.size();
+            if (!complete || values.size() > limit - 1) {
                 return Optional.empty();
             }
             return Optional.of(values.stream().map(project -> requireText(project.key(), "project")).toList());
