@@ -1187,12 +1187,12 @@ public class JiraResourceAdapter implements JiraResourcePort {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record History(String id, HistoryAuthor author, String created, List<HistoryItem> items) {
 
-        ChangelogEntry toDomain(boolean beforeProjectChange) {
+        ChangelogEntry toDomain() {
             List<ChangelogEntry.FieldChange> changes = new ArrayList<>();
             for (HistoryItem item : items == null ? List.<HistoryItem>of() : items) {
                 changes.add(new ChangelogEntry.FieldChange(item.field(), item.fromValue(), item.toValue()));
             }
-            return new ChangelogEntry(requireId(id, "change"), author == null ? null : author.displayName(), created, changes, beforeProjectChange);
+            return new ChangelogEntry(requireId(id, "change"), author == null ? null : author.displayName(), created, changes);
         }
 
         boolean changesProject() {
@@ -1202,7 +1202,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Changelog(List<History> histories) {
+    record Changelog(Integer maxResults, Integer total, List<History> histories) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -1221,11 +1221,16 @@ public class JiraResourceAdapter implements JiraResourcePort {
                     lastProjectChange = i;
                 }
             }
+            // What came before the issue moved to its present project says nothing about the caller's rights to it: the entry
+            // of the last move and every older one are not returned.
             List<ChangelogEntry> entries = new ArrayList<>();
-            for (int i = from; i < end; i++) {
-                entries.add(all.get(i).toDomain(i < lastProjectChange));
+            for (int i = Math.max(from, lastProjectChange + 1); i < end; i++) {
+                entries.add(all.get(i).toDomain());
             }
-            return new ChangelogPage(entries, end < all.size() ? end : null);
+            Integer total = changelog == null ? null : changelog.total();
+            Integer jiraPageSize = changelog == null ? null : changelog.maxResults();
+            boolean incomplete = total != null ? total > all.size() : jiraPageSize != null && all.size() >= jiraPageSize;
+            return new ChangelogPage(entries, end < all.size() ? end : null, incomplete);
         }
     }
 

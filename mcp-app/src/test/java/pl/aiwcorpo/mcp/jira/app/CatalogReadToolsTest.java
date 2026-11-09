@@ -74,7 +74,7 @@ class CatalogReadToolsTest extends ServerTestSupport {
             assertThat(page.at("/items")).extracting(item -> item.get("id").asString())
                     .as("a link with other text, to a restricted issue, to a moved issue and without a key leave no entry")
                     .containsExactly("50004", "50005", "50006");
-            assertThat(page.at("/items/0/changes")).as("the project change is gone, the summary stays").hasSize(1);
+            assertThat(page.at("/items/0/changes")).hasSize(1);
             assertThat(page.at("/items/0/changes/0/from/text").asString()).isEqualTo("see <hidden-issue> and ABC-2");
             assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("see <hidden-issue>");
             assertThat(page.at("/items/1/changes/0/field").asString()).isEqualTo("Parent");
@@ -90,19 +90,31 @@ class CatalogReadToolsTest extends ServerTestSupport {
     }
 
     @Test
-    void valuesBoundToTheProjectAreNullInEntriesOlderThanTheLastProjectChange() {
+    void theEntryOfTheLastProjectChangeAndEveryOlderOneAreNotReturned() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
-            JsonNode page = json(call(client, "get_issue_changelog", Map.of("issueKey", "ABC-64")));
+            McpSchema.CallToolResult result = call(client, "get_issue_changelog", Map.of("issueKey", "ABC-64"));
 
-            assertThat(page.at("/items")).extracting(item -> item.get("id").asString()).containsExactly("60001", "60003");
-            assertThat(page.at("/items/0/changes/0/field").asString()).isEqualTo("Workflow");
-            assertThat(page.at("/items/0/changes/0/from").isNull()).isTrue();
-            assertThat(page.at("/items/0/changes/0/to").isNull()).isTrue();
-            assertThat(page.at("/items/0/changes/1/to").isNull()).isTrue();
-            assertThat(page.at("/items/0/changes/2/to/text").asString()).as("status is not bound to the project").isEqualTo("Done");
-            assertThat(page.at("/items/1/changes/0/to/text").asString()).isEqualTo("Backend");
-            assertThat(page.at("/items/1/changes/1/to/text").asString()).isEqualTo("Sprint 1");
-            assertThat(page.toString()).doesNotContain("HR approval", "HR 1.0");
+            JsonNode page = json(result);
+            assertThat(page.at("/items")).extracting(item -> item.get("id").asString()).containsExactly("60003", "60004");
+            assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("Backend");
+            assertThat(page.at("/omitted")).as("the history is complete").isEmpty();
+            assertThat(text(result)).doesNotContain("HR only", "HR approval", "Human Resources", "Security Level");
+        }
+    }
+
+    @Test
+    void anIncompleteHistoryShowsOnlyFieldsThatDoNotDependOnTheProject() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            for (String key : List.of("ABC-66", "ABC-67")) {
+                McpSchema.CallToolResult result = call(client, "get_issue_changelog", Map.of("issueKey", key));
+
+                JsonNode page = json(result);
+                assertThat(page.at("/omitted/0").asString()).as(key).isEqualTo("history_incomplete");
+                assertThat(page.at("/items")).as(key + ": the entry with a Component/s change only is gone").hasSize(1);
+                assertThat(page.at("/items/0/changes")).extracting(change -> change.get("field").asString())
+                        .containsExactly("summary", "Parent");
+                assertThat(text(result)).as(key).doesNotContain("HR only", "Security Level", "Backend");
+            }
         }
     }
 
@@ -155,6 +167,7 @@ class CatalogReadToolsTest extends ServerTestSupport {
             JsonNode page = json(call(client, "get_issue_changelog", Map.of("issueKey", "ABC-1")));
 
             assertThat(page.at("/items")).hasSize(3);
+            assertThat(page.at("/omitted")).isEmpty();
             assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("In Progress");
         }
     }

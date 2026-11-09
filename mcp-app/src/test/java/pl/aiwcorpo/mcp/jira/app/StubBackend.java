@@ -345,7 +345,8 @@ final class StubBackend {
             respond(exchange, 403, "{\"errorMessages\":[\"You do not have the permission to see the specified issue.\"]}");
         } else if ("ABC-500".equals(key)) {
             respond(exchange, 500, "{\"error\":\"boom\",\"seen\":\"" + authorization + "\"}");
-        } else if (sub == null && !write && ("ABC-1".equals(key) || "ABC-60".equals(key) || "ABC-61".equals(key) || "ABC-63".equals(key) || "ABC-64".equals(key))
+        } else if (sub == null && !write && ("ABC-1".equals(key) || "ABC-60".equals(key) || "ABC-61".equals(key) || "ABC-63".equals(key) || "ABC-64".equals(key)
+                || "ABC-66".equals(key) || "ABC-67".equals(key))
                 && String.valueOf(exchange.getRequestURI().getRawQuery()).contains("expand=changelog")) {
             respond(exchange, 200, changelogOf(key));
         } else if (sub == null && !write && "ABC-1".equals(key)) {
@@ -644,8 +645,7 @@ final class StubBackend {
                      {"id":"50003","author":{"displayName":"Alice Tester"},"created":"2026-10-03T09:00:00.000+0000",
                       "items":[{"field":"Parent","fromString":"HR-1","toString":null}]},
                      {"id":"50004","author":{"displayName":"Alice Tester"},"created":"2026-10-04T09:00:00.000+0000",
-                      "items":[{"field":"summary","fromString":"see HR-1 and ABC-2","toString":"see HR-2"},
-                               {"field":"project","fromString":"Human Resources","toString":"Alpha Team"}]},
+                      "items":[{"field":"summary","fromString":"see HR-1 and ABC-2","toString":"see HR-2"}]},
                      {"id":"50005","author":{"displayName":"Alice Tester"},"created":"2026-10-05T09:00:00.000+0000",
                       "items":[{"field":"Parent","fromString":"ABC-404","toString":"ABC-2"}]},
                      {"id":"50006","author":{"displayName":"Alice Tester"},"created":"2026-10-06T09:00:00.000+0000",
@@ -660,14 +660,28 @@ final class StubBackend {
             return """
                     {"key":"ABC-64","fields":{"summary":"x"},"changelog":{"startAt":0,"maxResults":100,"total":4,"histories":[
                      {"id":"60001","author":{"displayName":"Alice Tester"},"created":"2026-10-01T09:00:00.000+0000",
-                      "items":[{"field":"Workflow","fromString":"HR approval workflow","toString":"Simple"},
-                               {"field":"Fix Version/s","fromString":null,"toString":"HR 1.0"},
+                      "items":[{"field":"Security Level","fromString":null,"toString":"HR only"},
                                {"field":"status","fromString":"To Do","toString":"Done"}]},
                      {"id":"60002","author":{"displayName":"Alice Tester"},"created":"2026-10-02T09:00:00.000+0000",
-                      "items":[{"field":"project","fromString":"Human Resources","toString":"Alpha Team"}]},
+                      "items":[{"field":"project","fromString":"Human Resources","toString":"Alpha Team"},
+                               {"field":"Workflow","fromString":"HR approval workflow","toString":"Simple"}]},
                      {"id":"60003","author":{"displayName":"Alice Tester"},"created":"2026-10-03T09:00:00.000+0000",
                       "items":[{"field":"Component/s","fromString":null,"toString":"Backend"},
-                               {"field":"Sprint","fromString":null,"toString":"Sprint 1"}]}]}}""";
+                               {"field":"status","fromString":"Done","toString":"To Do"}]},
+                     {"id":"60004","author":{"displayName":"Alice Tester"},"created":"2026-10-04T09:00:00.000+0000",
+                      "items":[{"field":"Version","fromString":null,"toString":"1.0"}]}]}}""";
+        }
+        if ("ABC-66".equals(key) || "ABC-67".equals(key)) {
+            boolean knownTotal = "ABC-66".equals(key);
+            return """
+                    {"key":"%s","fields":{"summary":"x"},"changelog":{"startAt":0,"maxResults":%d,%s"histories":[
+                     {"id":"61001","author":{"displayName":"Alice Tester"},"created":"2026-10-01T09:00:00.000+0000",
+                      "items":[{"field":"summary","fromString":"a","toString":"b"},
+                               {"field":"Security Level","fromString":null,"toString":"HR only"},
+                               {"field":"Parent","fromString":null,"toString":"ABC-2"}]},
+                     {"id":"61002","author":{"displayName":"Alice Tester"},"created":"2026-10-02T09:00:00.000+0000",
+                      "items":[{"field":"Component/s","fromString":null,"toString":"Backend"}]}]}}"""
+                    .formatted(key, knownTotal ? 100 : 2, knownTotal ? "\"total\":40," : "");
         }
         StringBuilder histories = new StringBuilder();
         if ("ABC-60".equals(key)) {
@@ -685,7 +699,7 @@ final class StubBackend {
             histories.append("{\"id\":\"40100\",\"author\":{\"displayName\":\"Alice Tester\"},\"created\":\"2026-10-01T09:00:00.000+0000\",\"items\":["
                     + items + "]}");
         }
-        return "{\"key\":\"" + key + "\",\"fields\":{\"summary\":\"x\"},\"changelog\":{\"startAt\":0,\"maxResults\":100,\"total\":30,\"histories\":["
+        return "{\"key\":\"" + key + "\",\"fields\":{\"summary\":\"x\"},\"changelog\":{\"startAt\":0,\"maxResults\":100,\"total\":" + ("ABC-60".equals(key) ? 30 : 1) + ",\"histories\":["
                 + histories + "]}}";
     }
 
@@ -1002,7 +1016,7 @@ final class StubBackend {
 
     /** Issues that read like ABC-1 under their own key; what differs is how the writes to them answer. */
     private static final java.util.Set<String> PLAIN_ISSUES = java.util.Set.of("ABC-2", "ABC-7", "ABC-8", "ABC-9", "ABC-15", "ABC-17",
-            "ABC-20", "ABC-43", "ABC-44", "ABC-40", "ABC-41", "ABC-42", "ABC-45", "ABC-60", "ABC-61", "ABC-63", "ABC-64", "ABC-65", "ABC-21", "ABC-22", "ABC-24", "ABC-25", "ABC-26");
+            "ABC-20", "ABC-43", "ABC-44", "ABC-40", "ABC-41", "ABC-42", "ABC-45", "ABC-60", "ABC-61", "ABC-63", "ABC-64", "ABC-65", "ABC-66", "ABC-67", "ABC-21", "ABC-22", "ABC-24", "ABC-25", "ABC-26");
 
     /** Extra hits of a search for "stale index": issues the index still lists under ABC, one moved to HR, one failing. */
     private static final String STALE_HITS = """

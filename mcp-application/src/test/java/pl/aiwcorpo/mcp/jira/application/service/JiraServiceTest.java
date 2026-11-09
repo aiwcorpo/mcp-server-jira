@@ -461,7 +461,7 @@ class JiraServiceTest {
         @Override
         public Optional<ChangelogPage> changelog(String issueKey, int startAt, int maxResults) {
             pageRequests.add("changelog:" + startAt + ":" + maxResults);
-            return visible.contains(issueKey) ? Optional.of(new ChangelogPage(List.of(), null)) : Optional.empty();
+            return visible.contains(issueKey) ? Optional.of(new ChangelogPage(List.of(), null, false)) : Optional.empty();
         }
 
         @Override

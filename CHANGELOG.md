@@ -36,7 +36,7 @@ Major release: the policies of the server live in this repository. Built on `mcp
   issues like `link_issues`), which is `DESTRUCTIVE` like `delete_issue`. `get_issue` returns `links` (id, type, direction, key of the other issue)
   for the issues the caller may read, at most 50 with `linksTruncated`.
 - `get_issue_changelog` judges issue keys by project: keys of unreadable projects become `<hidden-issue>`, changes of reference fields are shown only
-  when they are nothing but readable keys (otherwise left out whole), and project-bound fields of entries older than the last project change are null.
+  when they are nothing but readable keys (otherwise left out whole), the entry of the last project change and all older entries are not returned, and an incomplete history (`omitted: history_incomplete`) shows only project-independent fields.
   `list_boards` drops boards without a recognized location, `list_sprints` checks the origin board of each sprint, `read_attachment` treats a file that is
   not strict UTF-8 text as binary, `get_issue` judges at most 200 links, and a board whose project list is not proven complete is refused.
 - `deploy/` has `compose.yaml`, `mcp-jira.env` and `certs/` next to the systemd files, and the procedure that adds the system

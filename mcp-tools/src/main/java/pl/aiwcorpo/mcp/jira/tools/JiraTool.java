@@ -391,8 +391,10 @@ public class JiraTool {
             + "characters, at most 50 fields per change). Issue keys of projects the caller may not read are replaced by "
             + "<hidden-issue>. A change of a field that points at other issues or projects (Link, Parent, Epic Link, "
             + "project ...) is left out whole unless its value is nothing but readable issue keys, and an entry without "
-            + "visible changes is left out, so a page can be shorter than 25. Workflow, version, component and sprint "
-            + "values of entries older than the last project change are null. Pass nextCursor back to get the next page.")
+            + "visible changes is left out, so a page can be shorter than 25. The entry of the last change of the project "
+            + "field and all older entries are not returned. When Jira returns less history than it holds, omitted "
+            + "holds history_incomplete and only changes of project-independent fields (summary, description, status, "
+            + "priority, assignee, labels and the like) are shown. Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Get issue changelog")
     public PagedResult<ChangelogItem> getIssueChangelog(
@@ -416,14 +418,14 @@ public class JiraTool {
         List<ChangelogItem> items = new java.util.ArrayList<>();
         boolean truncated = false;
         for (ChangelogEntry entry : page.entries()) {
-            var item = ChangelogItem.of(entry, readableProjects);
+            var item = ChangelogItem.of(entry, readableProjects, page.historyIncomplete());
             if (item.isPresent()) {
                 items.add(item.get());
                 truncated |= ChangelogItem.truncated(entry, item.get());
             }
         }
         return new PagedResult<>(items, nextCursor("get_issue_changelog", fingerprint, page.nextStartAt()), truncated,
-                List.of());
+                page.historyIncomplete() ? List.of("history_incomplete") : List.of());
     }
 
     @Tool(name = "list_statuses", description = "Lists the statuses of one Jira project for each of its issue types: "

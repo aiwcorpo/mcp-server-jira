@@ -56,8 +56,12 @@ A key of a project the caller may not read is replaced by `<hidden-issue>`. A ch
 projects (Link, Parent, Parent Link, Epic Link, Epic Child, Key, Sub-task, project and any name containing link, parent, epic,
 sub-task) is shown only when its value is nothing but keys of readable projects; otherwise the whole change is left out, with no
 marker, and an entry left without changes is left out too, so a page can be shorter than 25. Link changes read "This issue blocks
-ABC-5", which has text besides the key, so they are always left out. Workflow, Fix Version/s, Version/s, Component/s and Sprint
-values of entries older than the last change of the `project` field are null.
+ABC-5", which has text besides the key, so they are always left out. The entry of the last change of the `project` field and every
+older entry are not returned, because what they hold may describe another project (security level, workflow, versions, sprints). When
+Jira returns less history than it holds (`total` above the entries returned, or no `total` on a full page), `omitted` holds
+`history_incomplete` and each entry shows only changes of fields that mean the same in every project (summary, description,
+environment, priority, status, resolution, assignee, reporter, labels, due date and time tracking fields) and reference fields that
+pass the check above; an entry left without changes is left out.
 
 `add_watcher` adds the given user, or the caller when no username is given. `unwatch_issue` removes the caller only: a tool that
 takes other users off a watcher list is not offered. `remove_issue_link` is `DESTRUCTIVE` like `delete_issue`: it needs the destructive
