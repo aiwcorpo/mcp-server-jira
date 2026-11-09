@@ -39,7 +39,6 @@ class DegradedModeTest extends ServerTestSupport {
         changes.put("add_worklog", Map.of("issueKey", "ABC-1", "timeSpent", "1h"));
         changes.put("add_watcher", Map.of("issueKey", "ABC-1"));
         changes.put("unwatch_issue", Map.of("issueKey", "ABC-1"));
-        changes.put("detach_issue_link", Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90001"));
         try (McpSyncClient client = clientWithCredential(PAT);
                 McpSyncClient eraser = clientWithToken(ServerTestSupport::eraser, PAT)) {
             changes.forEach((tool, arguments) -> {
@@ -49,6 +48,9 @@ class DegradedModeTest extends ServerTestSupport {
             });
             McpSchema.CallToolResult deletion = call(eraser, "delete_issue", Map.of("issueKey", "ABC-1"));
             assertThat(text(deletion)).contains("\"error\":\"upstream_unavailable\"");
+            McpSchema.CallToolResult unlink = call(eraser, "remove_issue_link",
+                    Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90001"));
+            assertThat(text(unlink)).contains("\"error\":\"upstream_unavailable\"");
         }
         assertThat(BACKEND.writes()).isEmpty();
     }

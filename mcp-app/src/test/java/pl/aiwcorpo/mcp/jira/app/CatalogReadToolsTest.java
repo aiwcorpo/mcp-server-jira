@@ -66,6 +66,70 @@ class CatalogReadToolsTest extends ServerTestSupport {
     }
 
     @Test
+    void valuesNamingIssuesTheCallerMayNotReadAreRedactedWithoutAReason() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue_changelog", Map.of("issueKey", "ABC-63"));
+
+            JsonNode page = json(result);
+            assertThat(page.at("/items/0/redacted").asBoolean()).as("link to a readable issue").isFalse();
+            assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("This issue relates to ABC-2");
+            assertThat(page.at("/items/1/redacted").asBoolean()).isTrue();
+            assertThat(page.at("/items/1/changes/0/field").asString()).isEqualTo("Link");
+            assertThat(page.at("/items/1/changes/0/to").isNull()).isTrue();
+            assertThat(page.at("/items/1/changes/1/from").isNull()).as("one restricted key hides both values").isTrue();
+            assertThat(page.at("/items/2/redacted").asBoolean()).isTrue();
+            assertThat(page.at("/items/2/changes/0/from").isNull()).isTrue();
+            assertThat(page.at("/items/3/redacted").asBoolean()).as("the project field is never shown").isTrue();
+            assertThat(page.at("/items/3/changes/1/from").isNull()).isTrue();
+            assertThat(page.at("/items/3/changes/0/from/text").asString()).as("not a reference field").isEqualTo("see HR-1");
+            assertThat(page.at("/items/4/redacted").asBoolean()).as("an issue that cannot be resolved is not shown").isTrue();
+            assertThat(text(result)).doesNotContain("Human Resources");
+            assertThat(text(result)).doesNotContain("relates to HR-1");
+        }
+    }
+
+    @Test
+    void anIssueShowsItsLinksToReadableIssuesOnlyAndNeverCountsTheOthers() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            McpSchema.CallToolResult result = call(client, "get_issue", Map.of("issueKey", "ABC-1"));
+
+            JsonNode issue = json(result);
+            assertThat(issue.at("/links")).hasSize(1);
+            assertThat(issue.at("/links/0/id").asString()).isEqualTo("90001");
+            assertThat(issue.at("/links/0/type").asString()).isEqualTo("Blocks");
+            assertThat(issue.at("/links/0/direction").asString()).isEqualTo("inward");
+            assertThat(issue.at("/links/0/description").asString()).isEqualTo("is blocked by");
+            assertThat(issue.at("/links/0/issueKey").asString()).isEqualTo("ABC-2");
+            assertThat(issue.at("/linksTruncated").asBoolean()).isFalse();
+            assertThat(text(result)).doesNotContain("HR-1", "Salary", "90000", "Second issue");
+        }
+        assertThat(BACKEND.requests().getFirst().query()).contains("issuelinks");
+    }
+
+    @Test
+    void theLinksOfAnIssueAreLimitedAfterTheRestrictedOnesAreDropped() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode issue = json(call(client, "get_issue", Map.of("issueKey", "ABC-62")));
+
+            assertThat(issue.at("/links")).hasSize(50);
+            assertThat(issue.at("/links/0/id").asString()).as("the restricted link in front is gone").isEqualTo("91001");
+            assertThat(issue.at("/links/0/direction").asString()).isEqualTo("outward");
+            assertThat(issue.at("/linksTruncated").asBoolean()).isTrue();
+            assertThat(issue.toString()).doesNotContain("HR-1");
+        }
+    }
+
+    @Test
+    void anUnrelatedChangeIsNotRedacted() {
+        try (McpSyncClient client = clientWithCredential(PAT)) {
+            JsonNode page = json(call(client, "get_issue_changelog", Map.of("issueKey", "ABC-1")));
+
+            assertThat(page.at("/items")).allSatisfy(item -> assertThat(item.get("redacted").asBoolean()).isFalse());
+            assertThat(page.at("/items/0/changes/0/to/text").asString()).isEqualTo("In Progress");
+        }
+    }
+
+    @Test
     void longValuesAndLongChangesAreCutAndTheResultSaysSo() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             JsonNode page = json(call(client, "get_issue_changelog", Map.of("issueKey", "ABC-61")));

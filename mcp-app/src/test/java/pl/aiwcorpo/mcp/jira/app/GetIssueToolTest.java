@@ -46,13 +46,16 @@ class GetIssueToolTest extends ServerTestSupport {
             assertThat(text(result)).as("only the fields of the tool leave the adapter")
                     .doesNotContain("alice@corp.test", "Salary review", "HR-1", "<p>", "jira.internal");
         }
-        assertThat(BACKEND.requests()).as("the issue, then the category of its project, nothing more").hasSize(2);
+        assertThat(BACKEND.requests()).as("the issue, the category of its project, then the two linked issues judged").hasSize(6);
         assertThat(BACKEND.requests().getFirst()).satisfies(request -> {
             assertThat(request.authorization()).isEqualTo(PAT);
             assertThat(request.path()).isEqualTo("/rest/api/2/issue/ABC-1");
-            assertThat(request.query()).isEqualTo("fields=summary,description,status,issuetype,assignee,project,updated");
+            assertThat(request.query()).isEqualTo("fields=summary,description,status,issuetype,assignee,project,updated,issuelinks");
         });
-        assertThat(BACKEND.requests().getLast().path()).isEqualTo("/rest/api/2/project/ABC");
+        assertThat(BACKEND.requests().get(1).path()).isEqualTo("/rest/api/2/project/ABC");
+        assertThat(BACKEND.requests().stream().skip(2).map(StubBackend.Request::path))
+                .containsExactlyInAnyOrder("/rest/api/2/issue/HR-1", "/rest/api/2/project/HR", "/rest/api/2/issue/ABC-2",
+                        "/rest/api/2/project/ABC");
         assertThat(BACKEND.authorizations()).containsOnly(PAT);
     }
 

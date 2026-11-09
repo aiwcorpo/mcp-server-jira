@@ -16,10 +16,9 @@ class ToolListTest extends ServerTestSupport {
             "list_statuses", "list_issue_types", "get_create_fields", "list_link_types", "get_current_user",
             "read_attachment", "list_boards", "list_sprints", "list_sprint_issues");
     static final List<String> UPDATE_TOOLS = List.of("add_comment", "edit_comment", "transition_issue", "create_issue",
-            "update_issue", "assign_issue", "unassign_issue", "link_issues", "add_worklog", "add_watcher", "unwatch_issue",
-            "detach_issue_link");
+            "update_issue", "assign_issue", "unassign_issue", "link_issues", "add_worklog", "add_watcher", "unwatch_issue");
     static final List<String> READ_TOOLS_AND_WRITE_TOOLS = java.util.stream.Stream
-            .concat(java.util.stream.Stream.concat(READ_TOOLS.stream(), UPDATE_TOOLS.stream()), java.util.stream.Stream.of("delete_issue"))
+            .concat(java.util.stream.Stream.concat(READ_TOOLS.stream(), UPDATE_TOOLS.stream()), java.util.stream.Stream.of("delete_issue", "remove_issue_link"))
             .toList();
 
     @Test
@@ -31,7 +30,7 @@ class ToolListTest extends ServerTestSupport {
             assertThat(tools).filteredOn(t -> t.annotations().readOnlyHint()).extracting(McpSchema.Tool::name)
                     .containsExactlyInAnyOrderElementsOf(READ_TOOLS);
             assertThat(tools).filteredOn(t -> Boolean.TRUE.equals(t.annotations().destructiveHint()))
-                    .extracting(McpSchema.Tool::name).containsExactly("delete_issue");
+                    .extracting(McpSchema.Tool::name).containsExactlyInAnyOrder("delete_issue", "remove_issue_link");
         }
     }
 

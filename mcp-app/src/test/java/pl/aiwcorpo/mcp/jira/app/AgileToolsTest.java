@@ -137,7 +137,7 @@ class AgileToolsTest extends ServerTestSupport {
         try (McpSyncClient client = clientWithCredential(PAT)) {
             McpSchema.CallToolResult missing = call(client, "list_sprints", Map.of("boardId", "99"));
             assertNotFoundOrDenied(missing);
-            for (String board : List.of("9", "10", "11", "12")) {
+            for (String board : List.of("9", "10", "11", "12", "14", "15")) {
                 assertThat(text(call(client, "list_sprints", Map.of("boardId", board)))).as("board " + board).isEqualTo(text(missing));
             }
         }

@@ -7,6 +7,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.ChangelogEntry;
 import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
 import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueComment;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueLink;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeInfo;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeStatuses;
@@ -50,18 +51,30 @@ final class JiraToolViews {
     static final int MAX_CHANGES_PER_ENTRY = 50;
     static final int MAX_ALLOWED_VALUES = 20;
     static final int MAX_LINK_TYPES = 50;
+    static final int MAX_LINKS = 50;
     static final int MAX_GOAL = 500;
 
     private JiraToolViews() {
     }
 
-    record IssueView(String key, @Nullable String project, @Nullable String type, @Nullable String status,
-            @Nullable String assignee, @Nullable String updated, UntrustedText summary, @Nullable UntrustedText description) {
+    record LinkItem(String id, String type, String direction, @Nullable String description, String issueKey) {
 
-        static IssueView of(JiraIssue issue) {
+        static LinkItem of(IssueLink link) {
+            return new LinkItem(link.id(), JiraToolViews.name(link.typeName()), link.direction(),
+                    label(link.description()), link.otherKey());
+        }
+    }
+
+    record IssueView(String key, @Nullable String project, @Nullable String type, @Nullable String status,
+            @Nullable String assignee, @Nullable String updated, UntrustedText summary, @Nullable UntrustedText description,
+            List<LinkItem> links, boolean linksTruncated) {
+
+        /** @param readable the links to issues the caller may read; the others are not counted or shown */
+        static IssueView of(JiraIssue issue, List<IssueLink> readable) {
             return new IssueView(issue.key(), issue.projectKey(), JiraToolViews.name(issue.type()), JiraToolViews.name(issue.status()),
                     JiraToolViews.username(issue.assignee()), timestamp(issue.updated()), summaryText(issue.summary()),
-                    JiraWikiText.plain(issue.description(), MAX_DESCRIPTION));
+                    JiraWikiText.plain(issue.description(), MAX_DESCRIPTION),
+                    readable.stream().limit(MAX_LINKS).map(LinkItem::of).toList(), readable.size() > MAX_LINKS);
         }
     }
 
@@ -153,15 +166,23 @@ final class JiraToolViews {
     }
 
     record ChangelogItem(String id, @Nullable UntrustedText author, @Nullable String created,
-            List<FieldChangeItem> changes) {
+            List<FieldChangeItem> changes, boolean redacted) {
 
-        static ChangelogItem of(ChangelogEntry entry) {
+        /** @param readableKeys keys of the issues named in the page that the caller may read */
+        static ChangelogItem of(ChangelogEntry entry, java.util.Set<String> readableKeys) {
+            boolean[] redacted = {false};
+            List<FieldChangeItem> changes = entry.changes().stream().limit(MAX_CHANGES_PER_ENTRY).map(c -> {
+                if (refersToOtherResources(c.field()) && !readable(c, readableKeys)) {
+                    redacted[0] = true;
+                    return new FieldChangeItem(name(c.field()), null, null);
+                }
+                return new FieldChangeItem(name(c.field()),
+                        c.from() == null ? null : UntrustedText.plain(c.from(), MAX_CHANGE_TEXT),
+                        c.to() == null ? null : UntrustedText.plain(c.to(), MAX_CHANGE_TEXT));
+            }).toList();
             return new ChangelogItem(entry.id(),
                     entry.author() == null ? null : UntrustedText.plain(entry.author(), MAX_USERNAME),
-                    timestamp(entry.created()),
-                    entry.changes().stream().limit(MAX_CHANGES_PER_ENTRY).map(c -> new FieldChangeItem(JiraToolViews.name(c.field()),
-                            c.from() == null ? null : UntrustedText.plain(c.from(), MAX_CHANGE_TEXT),
-                            c.to() == null ? null : UntrustedText.plain(c.to(), MAX_CHANGE_TEXT))).toList());
+                    timestamp(entry.created()), changes, redacted[0]);
         }
 
         /** True when a text was cut or the entry has more field changes than are shown. */
@@ -170,6 +191,39 @@ final class JiraToolViews {
                     || item.changes().stream().anyMatch(c -> c.from() != null && c.from().truncated()
                             || c.to() != null && c.to().truncated());
         }
+
+        private static boolean readable(ChangelogEntry.FieldChange change, java.util.Set<String> readableKeys) {
+            // The project field holds project names and ids, which cannot be judged by key: never shown.
+            return !"project".equalsIgnoreCase(change.field()) && readableKeys.containsAll(referencedKeys(change));
+        }
+    }
+
+    private static final java.util.regex.Pattern ISSUE_KEY_IN_TEXT = java.util.regex.Pattern
+            .compile("(?<![A-Za-z0-9_])[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}(?![A-Za-z0-9_])");
+
+    /**
+     * Fields whose old and new value point at other issues or projects (Link, Parent, Parent Link, Epic Link, Epic Child,
+     * Key, project, Sub-task, issuelinks and the like). A name that merely contains one of the words counts, so an
+     * unknown variant is treated as a reference.
+     */
+    static boolean refersToOtherResources(String field) {
+        if (field == null) {
+            return false;
+        }
+        String lower = field.toLowerCase(java.util.Locale.ROOT);
+        return lower.equals("key") || lower.equals("project") || lower.contains("link") || lower.contains("parent")
+                || lower.contains("epic") || lower.contains("sub-task") || lower.contains("subtask");
+    }
+
+    /** Issue keys in the old and the new value of a change. */
+    static java.util.Set<String> referencedKeys(ChangelogEntry.FieldChange change) {
+        java.util.Set<String> keys = new java.util.LinkedHashSet<>();
+        for (String text : new String[] {change.from(), change.to()}) {
+            if (text != null) {
+                ISSUE_KEY_IN_TEXT.matcher(text).results().forEach(m -> keys.add(m.group()));
+            }
+        }
+        return keys;
     }
 
     record StatusItem(String name, @Nullable String category) {

@@ -23,7 +23,7 @@ public class McpToolsConfiguration {
             "add_comment", "edit_comment", "transition_issue", "create_issue", "update_issue", "assign_issue",
             "unassign_issue", "link_issues", "add_worklog", "delete_issue", "get_issue_changelog", "list_statuses",
             "list_issue_types", "get_create_fields", "list_link_types", "get_current_user", "read_attachment",
-            "list_boards", "list_sprints", "list_sprint_issues", "add_watcher", "unwatch_issue", "detach_issue_link");
+            "list_boards", "list_sprints", "list_sprint_issues", "add_watcher", "unwatch_issue", "remove_issue_link");
 
     @Bean
     public ToolCallbackProvider mcpTools(JiraTool jiraTool) {

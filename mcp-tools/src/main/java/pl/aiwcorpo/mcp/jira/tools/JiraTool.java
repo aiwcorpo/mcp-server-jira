@@ -11,6 +11,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
 import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueLink;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
@@ -159,7 +160,9 @@ public class JiraTool {
     @Tool(name = "get_issue", description = "Returns one Jira issue: key, project, type, status, assignee "
             + "username, last update time, and the summary and description as written by Jira users, each "
             + "marked as untrusted data. The description is plain text converted from Jira wiki markup "
-            + "(images removed, links as text) and cut at 10000 characters.")
+            + "(images removed, links as text) and cut at 10000 characters. Also the links to other issues the "
+            + "caller may read (link id, type name, direction and its sentence, key of the other issue; at most 50, "
+            + "linksTruncated says when there are more); links to issues the caller may not read are left out.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Get issue")
     public IssueView getIssue(
@@ -167,7 +170,11 @@ public class JiraTool {
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
                     resourceType = JiraResourceModel.ISSUE_TYPE)
             @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
-        return IssueView.of(resolved(issueKey));
+        JiraIssue issue = resolved(issueKey);
+        // A link to an issue the caller may not read is dropped whole, before the limit, so neither a key nor a count of
+        // hidden links shows.
+        List<IssueLink> readable = policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, issue.links(), IssueLink::otherKey);
+        return IssueView.of(issue, readable);
     }
 
     @Tool(name = "search_issues", description = "Searches issues of one Jira project, optionally filtered by "
@@ -374,7 +381,9 @@ public class JiraTool {
     @Tool(name = "get_issue_changelog", description = "Returns the change history of one Jira issue, oldest first, 25 "
             + "changes per page: id, author display name and creation time, and for each changed field its name and the "
             + "old and new value as written by Jira users, marked as untrusted data (plain text, each cut at 500 "
-            + "characters, at most 50 fields per change). Pass nextCursor back to get the next page.")
+            + "characters, at most 50 fields per change). Values of fields that point at other issues or projects are "
+            + "left out (null) when they name an issue the caller may not read, and the change is then marked redacted. "
+            + "Pass nextCursor back to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Get issue changelog")
     public PagedResult<ChangelogItem> getIssueChangelog(
@@ -388,7 +397,14 @@ public class JiraTool {
         String key = resolved(issueKey).key();
         String fingerprint = CursorCodec.fingerprint("get_issue_changelog", key);
         ChangelogPage page = useCase.changelog(key, position(cursor, "get_issue_changelog", fingerprint));
-        List<ChangelogItem> items = page.entries().stream().map(ChangelogItem::of).toList();
+        // Values of fields that point at other issues can carry keys of projects the caller may not read; they are judged
+        // by the issue policy and shown only when every key in them is allowed.
+        List<String> referenced = page.entries().stream().flatMap(entry -> entry.changes().stream())
+                .filter(change -> JiraToolViews.refersToOtherResources(change.field()))
+                .flatMap(change -> JiraToolViews.referencedKeys(change).stream()).distinct().toList();
+        java.util.Set<String> readableKeys = referenced.isEmpty() ? java.util.Set.of()
+                : new java.util.HashSet<>(policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, referenced, k -> k));
+        List<ChangelogItem> items = page.entries().stream().map(entry -> ChangelogItem.of(entry, readableKeys)).toList();
         boolean truncated = false;
         for (int i = 0; i < items.size(); i++) {
             truncated |= ChangelogItem.truncated(page.entries().get(i), items.get(i));
@@ -860,12 +876,12 @@ public class JiraTool {
         return new WatcherView(key, JiraToolViews.username(useCase.removeWatcher(key)));
     }
 
-    @Tool(name = "detach_issue_link", description = "Removes one link between two Jira issues, given by link id and "
+    @Tool(name = "remove_issue_link", description = "Permanently removes one link between two Jira issues, given by link id and "
             + "by the keys of both issues; the link must join exactly these two issues (in either order). The caller "
             + "needs access to both issues. Repeating the call fails because the link no longer exists.")
-    @ToolRisk(RiskLevel.UPDATE)
-    @ToolTitle("Detach issue link")
-    public UnlinkView detachIssueLink(
+    @ToolRisk(RiskLevel.DESTRUCTIVE)
+    @ToolTitle("Remove issue link")
+    public UnlinkView removeIssueLink(
             @ToolParam(description = "Key of the outward issue, e.g. ABC-12")
             @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
                     resourceType = JiraResourceModel.ISSUE_TYPE)
@@ -880,6 +896,10 @@ public class JiraTool {
         gate.requireWritable();
         String outward = resolved(outwardIssueKey).key();
         String inward = resolved(inwardIssueKey).key();
+        // The one-time code the human entered is bound to the keys in the arguments, as in delete_issue.
+        if (!outward.equals(outwardIssueKey) || !inward.equals(inwardIssueKey)) {
+            throw new InvalidToolArgumentException("An issue now has another key; call again with the current keys.");
+        }
         if (outward.equals(inward)) {
             throw new InvalidToolArgumentException("An issue cannot be linked to itself.");
         }

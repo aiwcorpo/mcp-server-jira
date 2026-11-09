@@ -44,6 +44,7 @@ import pl.aiwcorpo.mcp.jira.core.domain.ChangelogEntry;
 import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
 import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueLink;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueLinkEnds;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeInfo;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
@@ -96,7 +97,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
     static final String SYSTEM = "jira";
 
     /** Fields asked from Jira; everything else (comments, links, custom fields, rendered HTML) is not fetched. */
-    private static final String ISSUE_FIELDS = "summary,description,status,issuetype,assignee,project,updated";
+    private static final String ISSUE_FIELDS = "summary,description,status,issuetype,assignee,project,updated,issuelinks";
 
     private static final List<String> SEARCH_FIELDS =
             List.of("summary", "status", "issuetype", "assignee", "project", "updated");
@@ -681,7 +682,7 @@ public class JiraResourceAdapter implements JiraResourcePort {
                     .headers(credential()::applyTo)
                     .retrieve()
                     .body(BoardProjectsResponse.class))
-                    .map(BoardProjectsResponse::toKeys);
+                    .flatMap(response -> response.toKeys(limit));
         } catch (HttpClientErrorException.BadRequest unknownBoard) {
             return Optional.empty();
         }
@@ -881,7 +882,27 @@ public class JiraResourceAdapter implements JiraResourcePort {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record IssueFields(String summary, String description, Named status, Named issuetype, Named assignee,
-            ProjectRef project, String updated) {
+            ProjectRef project, String updated, List<IssueLinkEntry> issuelinks) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record LinkTypeRef(String name, String inward, String outward) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record IssueLinkEntry(String id, LinkTypeRef type, LinkedIssueRef inwardIssue, LinkedIssueRef outwardIssue) {
+
+        /** An entry Jira does not describe fully (no id, type or key of the other issue) is left out, not guessed. */
+        Optional<IssueLink> toDomain() {
+            boolean inward = inwardIssue != null && inwardIssue.key() != null;
+            LinkedIssueRef other = inward ? inwardIssue : outwardIssue;
+            if (id == null || !ID.matcher(id).matches() || type == null || type.name() == null || other == null
+                    || other.key() == null || !ISSUE_KEY.matcher(other.key()).matches()) {
+                return Optional.empty();
+            }
+            String sentence = inward ? type.inward() : type.outward();
+            return Optional.of(new IssueLink(id, type.name(), inward ? "inward" : "outward", sentence, other.key()));
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -897,9 +918,11 @@ public class JiraResourceAdapter implements JiraResourcePort {
 
         JiraIssue toDomain() {
             IssueFields f = fields == null
-                    ? new IssueFields(null, null, null, null, null, null, null) : fields;
+                    ? new IssueFields(null, null, null, null, null, null, null, null) : fields;
+            List<IssueLink> links = (f.issuelinks() == null ? List.<IssueLinkEntry>of() : f.issuelinks()).stream()
+                    .flatMap(entry -> entry.toDomain().stream()).toList();
             return new JiraIssue(requireKey(), f.project() == null ? null : f.project().key(), name(f.issuetype()),
-                    name(f.status()), name(f.assignee()), f.updated(), f.summary(), f.description(), null);
+                    name(f.status()), name(f.assignee()), f.updated(), f.summary(), f.description(), null, links);
         }
 
         private static String name(Named named) {
@@ -1313,13 +1336,20 @@ public class JiraResourceAdapter implements JiraResourcePort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record BoardProjectsResponse(List<ProjectRef> values) {
+    record BoardProjectsResponse(Integer total, @JsonProperty("isLast") Boolean last, List<ProjectRef> values) {
 
-        List<String> toKeys() {
+        /**
+         * Empty when the list may be incomplete: the caller judges a board by all of its projects, and a partial list
+         * would let a board with an unseen restricted project through. {@code limit} is the number of keys asked for.
+         */
+        Optional<List<String>> toKeys(int limit) {
             if (values == null) {
                 throw new BackendResponseException("board projects missing");
             }
-            return values.stream().map(project -> requireText(project.key(), "project")).toList();
+            if (Boolean.FALSE.equals(last) || total != null && (total > values.size() || total > limit - 1)) {
+                return Optional.empty();
+            }
+            return Optional.of(values.stream().map(project -> requireText(project.key(), "project")).toList());
         }
     }
 

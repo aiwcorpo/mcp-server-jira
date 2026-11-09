@@ -15,8 +15,8 @@ class CatalogWriteToolsTest extends ServerTestSupport {
 
     private static final Map<String, Map<String, Object>> WRITES = Map.of(
             "add_watcher", Map.of("issueKey", "ABC-1", "username", "alice"),
-            "unwatch_issue", Map.of("issueKey", "ABC-1"),
-            "detach_issue_link", Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90001"));
+            "unwatch_issue", Map.of("issueKey", "ABC-1"));
+    private static final Map<String, Object> UNLINK = Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90001");
 
     @BeforeEach
     void resetBackend() {
@@ -101,15 +101,15 @@ class CatalogWriteToolsTest extends ServerTestSupport {
 
     @Test
     void aLinkIsRemovedWhenItJoinsTheTwoNamedIssuesInEitherOrder() {
-        try (McpSyncClient client = clientWithCredential(PAT)) {
-            McpSchema.CallToolResult result = call(client, "detach_issue_link",
+        try (McpSyncClient client = clientWithToken(ServerTestSupport::eraser, PAT)) {
+            McpSchema.CallToolResult result = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90001"));
             assertThat(result.isError()).isFalse();
             assertThat(json(result).at("/outwardIssueKey").asString()).isEqualTo("ABC-1");
             assertThat(json(result).at("/inwardIssueKey").asString()).isEqualTo("ABC-2");
             assertThat(json(result).at("/linkId").asString()).isEqualTo("90001");
 
-            assertThat(call(client, "detach_issue_link",
+            assertThat(call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-2", "inwardIssueKey", "ABC-1", "linkId", "90001")).isError()).isFalse();
         }
         assertThat(BACKEND.writes()).hasSize(2).allSatisfy(request -> {
@@ -121,12 +121,12 @@ class CatalogWriteToolsTest extends ServerTestSupport {
 
     @Test
     void aLinkOfOtherIssuesIsNotRemovedThroughTwoIssuesTheCallerNamed() {
-        try (McpSyncClient client = clientWithCredential(PAT)) {
-            McpSchema.CallToolResult otherEnd = call(client, "detach_issue_link",
+        try (McpSyncClient client = clientWithToken(ServerTestSupport::eraser, PAT)) {
+            McpSchema.CallToolResult otherEnd = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90002"));
-            McpSchema.CallToolResult otherPair = call(client, "detach_issue_link",
+            McpSchema.CallToolResult otherPair = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "DEF-5", "linkId", "90001"));
-            McpSchema.CallToolResult unknown = call(client, "detach_issue_link",
+            McpSchema.CallToolResult unknown = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "99999"));
 
             assertNotFoundOrDenied(otherEnd);
@@ -138,15 +138,15 @@ class CatalogWriteToolsTest extends ServerTestSupport {
 
     @Test
     void bothIssuesAreJudgedAndTheRestrictedEndOfALinkCannotBeNamed() {
-        try (McpSyncClient client = clientWithCredential(PAT)) {
-            McpSchema.CallToolResult restricted = call(client, "detach_issue_link",
+        try (McpSyncClient client = clientWithToken(ServerTestSupport::eraser, PAT)) {
+            McpSchema.CallToolResult restricted = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "HR-1", "linkId", "90002"));
-            McpSchema.CallToolResult missing = call(client, "detach_issue_link",
+            McpSchema.CallToolResult missing = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-404", "linkId", "90002"));
 
             assertNotFoundOrDenied(restricted);
             assertThat(text(missing)).isEqualTo(text(restricted));
-            assertInvalidArgument(call(client, "detach_issue_link",
+            assertInvalidArgument(call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-1", "linkId", "90001")), "cannot be linked to itself");
         }
         assertThat(BACKEND.requests()).extracting(StubBackend.Request::path).noneMatch(path -> path.contains("/issueLink/"));
@@ -154,10 +154,10 @@ class CatalogWriteToolsTest extends ServerTestSupport {
 
     @Test
     void jirasRefusalAndAnUnconfirmedDeletionAreNotReportedAsSuccess() {
-        try (McpSyncClient client = clientWithCredential(PAT)) {
-            McpSchema.CallToolResult refused = call(client, "detach_issue_link",
+        try (McpSyncClient client = clientWithToken(ServerTestSupport::eraser, PAT)) {
+            McpSchema.CallToolResult refused = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90003"));
-            McpSchema.CallToolResult unconfirmed = call(client, "detach_issue_link",
+            McpSchema.CallToolResult unconfirmed = call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90004"));
 
             assertInvalidArgument(refused, "Jira refused to remove the link");
@@ -168,11 +168,22 @@ class CatalogWriteToolsTest extends ServerTestSupport {
     }
 
     @Test
+    void aLinkIsNotRemovedUnderAKeyTheHumanDidNotConfirm() {
+        try (McpSyncClient client = clientWithToken(ServerTestSupport::eraser, PAT)) {
+            McpSchema.CallToolResult moved = call(client, "remove_issue_link",
+                    Map.of("outwardIssueKey", "ABC-3", "inwardIssueKey", "ABC-2", "linkId", "90001"));
+
+            assertInvalidArgument(moved, "An issue now has another key");
+        }
+        assertThat(BACKEND.writes()).isEmpty();
+    }
+
+    @Test
     void theLinkIdIsADecimalNumber() {
-        try (McpSyncClient client = clientWithCredential(PAT)) {
-            assertInvalidArgument(call(client, "detach_issue_link",
+        try (McpSyncClient client = clientWithToken(ServerTestSupport::eraser, PAT)) {
+            assertInvalidArgument(call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "../90001")), "linkId does not match");
-            assertInvalidArgument(call(client, "detach_issue_link",
+            assertInvalidArgument(call(client, "remove_issue_link",
                     Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "")), "linkId");
         }
         assertThat(BACKEND.requests()).isEmpty();
@@ -208,6 +219,28 @@ class CatalogWriteToolsTest extends ServerTestSupport {
             });
         }
         assertThat(BACKEND.requests()).isEmpty();
+    }
+
+    @Test
+    void removingALinkIsDestructiveAndNeedsTheDestructiveGroupAndTheScopeOnBothIssues() {
+        McpSchema.Tool tool = listedTool("remove_issue_link");
+        assertThat(tool.annotations().destructiveHint()).isTrue();
+        assertThat(tool.title()).isEqualTo("Remove issue link");
+        try (McpSyncClient writer = clientWithCredential(PAT);
+                McpSyncClient reader = clientWithToken(ServerTestSupport::reader, PAT);
+                McpSyncClient abcOnly = clientWithToken(user -> user.username("jkowalski")
+                        .groups(List.of(READ_GROUP, WRITE_GROUP, DESTRUCTIVE_GROUP, PROJECT_ABC_GROUP)).mfaAgeSeconds(60), PAT);
+                McpSyncClient noScope = clientWithToken(user -> user.username("jkowalski")
+                        .groups(List.of(READ_GROUP, WRITE_GROUP, DESTRUCTIVE_GROUP)).mfaAgeSeconds(60), PAT);
+                McpSyncClient none = clientWithToken(ServerTestSupport::eraser, null)) {
+            assertThat(text(call(writer, "remove_issue_link", UNLINK))).contains("\"error\":\"access_denied\"");
+            assertThat(text(call(reader, "remove_issue_link", UNLINK))).contains("\"error\":\"access_denied\"");
+            assertNotFoundOrDenied(call(noScope, "remove_issue_link", UNLINK));
+            assertNotFoundOrDenied(call(abcOnly, "remove_issue_link", Map.of("outwardIssueKey", "ABC-1",
+                    "inwardIssueKey", "DEF-5", "linkId", "90001")));
+            assertCredentialRequired(call(none, "remove_issue_link", UNLINK));
+        }
+        assertThat(BACKEND.writes()).isEmpty();
     }
 
     @Test

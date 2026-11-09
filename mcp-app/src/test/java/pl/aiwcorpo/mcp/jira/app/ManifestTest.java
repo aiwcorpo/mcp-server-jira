@@ -149,7 +149,7 @@ class ManifestTest extends ServerTestSupport {
                 assertThat(tool.get("resourceRefs")).as("instance-wide metadata: the read group only").isEmpty();
             } else if (List.of("list_sprints", "list_sprint_issues").contains(name)) {
                 assertThat(tool.get("resourceRefs")).as("the board of a sprint is judged by the tool itself").isEmpty();
-            } else if ("link_issues".equals(name) || "detach_issue_link".equals(name)) {
+            } else if ("link_issues".equals(name) || "remove_issue_link".equals(name)) {
                 assertThat(tool.get("resourceRefs")).as(name).hasSize(2);
                 assertThat(List.of(tool.at("/resourceRefs/0/argument").asString(), tool.at("/resourceRefs/1/argument").asString()))
                         .containsExactlyInAnyOrder("outwardIssueKey", "inwardIssueKey");
