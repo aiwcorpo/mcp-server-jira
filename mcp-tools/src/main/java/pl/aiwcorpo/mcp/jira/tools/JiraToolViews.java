@@ -2,14 +2,23 @@ package pl.aiwcorpo.mcp.jira.tools;
 
 import java.util.List;
 import org.springframework.lang.Nullable;
+import pl.aiwcorpo.mcp.jira.core.domain.AttachmentText;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogEntry;
+import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
+import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueComment;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeInfo;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeStatuses;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraAttachment;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraBoard;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraSprint;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
+import pl.aiwcorpo.mcp.jira.core.domain.LinkType;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectDetails;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
@@ -37,6 +46,11 @@ final class JiraToolViews {
     static final int MAX_FILENAME = 255;
     static final int MAX_LABEL = 120;
     static final int MAX_ATTACHMENTS = 50;
+    static final int MAX_CHANGE_TEXT = 500;
+    static final int MAX_CHANGES_PER_ENTRY = 50;
+    static final int MAX_ALLOWED_VALUES = 20;
+    static final int MAX_LINK_TYPES = 50;
+    static final int MAX_GOAL = 500;
 
     private JiraToolViews() {
     }
@@ -133,6 +147,130 @@ final class JiraToolViews {
     }
 
     record AttachmentsView(String issueKey, List<AttachmentItem> attachments, boolean truncated) {
+    }
+
+    record FieldChangeItem(@Nullable String field, @Nullable UntrustedText from, @Nullable UntrustedText to) {
+    }
+
+    record ChangelogItem(String id, @Nullable UntrustedText author, @Nullable String created,
+            List<FieldChangeItem> changes) {
+
+        static ChangelogItem of(ChangelogEntry entry) {
+            return new ChangelogItem(entry.id(),
+                    entry.author() == null ? null : UntrustedText.plain(entry.author(), MAX_USERNAME),
+                    timestamp(entry.created()),
+                    entry.changes().stream().limit(MAX_CHANGES_PER_ENTRY).map(c -> new FieldChangeItem(JiraToolViews.name(c.field()),
+                            c.from() == null ? null : UntrustedText.plain(c.from(), MAX_CHANGE_TEXT),
+                            c.to() == null ? null : UntrustedText.plain(c.to(), MAX_CHANGE_TEXT))).toList());
+        }
+
+        /** True when a text was cut or the entry has more field changes than are shown. */
+        static boolean truncated(ChangelogEntry entry, ChangelogItem item) {
+            return entry.changes().size() > MAX_CHANGES_PER_ENTRY
+                    || item.changes().stream().anyMatch(c -> c.from() != null && c.from().truncated()
+                            || c.to() != null && c.to().truncated());
+        }
+    }
+
+    record StatusItem(String name, @Nullable String category) {
+    }
+
+    record IssueTypeStatusesItem(String issueType, List<StatusItem> statuses) {
+    }
+
+    record StatusesView(String project, List<IssueTypeStatusesItem> issueTypes, boolean truncated) {
+
+        static StatusesView of(String project, List<IssueTypeStatuses> types) {
+            boolean cut = types.size() > MAX_PROJECT_LIST
+                    || types.stream().anyMatch(t -> t.statuses().size() > MAX_PROJECT_LIST);
+            return new StatusesView(project, types.stream().limit(MAX_PROJECT_LIST)
+                    .map(t -> new IssueTypeStatusesItem(JiraToolViews.name(t.issueType()), t.statuses().stream().limit(MAX_PROJECT_LIST)
+                            .map(st -> new StatusItem(JiraToolViews.name(st.name()), JiraToolViews.name(st.category()))).toList()))
+                    .toList(), cut);
+        }
+    }
+
+    record IssueTypeItem(String id, String name, boolean subtask) {
+
+        static IssueTypeItem of(IssueTypeInfo type) {
+            return new IssueTypeItem(type.id(), JiraToolViews.name(type.name()), type.subtask());
+        }
+    }
+
+    record AllowedValueItem(@Nullable String id, String name) {
+    }
+
+    record CreateFieldItem(String fieldId, String name, boolean required, @Nullable String type,
+            @Nullable String itemsType, List<AllowedValueItem> allowedValues, boolean allowedValuesTruncated) {
+
+        static CreateFieldItem of(CreateFields.Field f) {
+            return new CreateFieldItem(f.fieldId(), label(f.name()), f.required(), JiraToolViews.name(f.type()), JiraToolViews.name(f.itemsType()),
+                    f.allowedValues().stream().limit(MAX_ALLOWED_VALUES)
+                            .map(v -> new AllowedValueItem(JiraToolViews.name(v.id()), label(v.name()))).toList(),
+                    f.allowedValues().size() > MAX_ALLOWED_VALUES);
+        }
+    }
+
+    record CreateFieldsView(String project, String issueTypeId, List<CreateFieldItem> fields, boolean truncated) {
+
+        static CreateFieldsView of(String project, String issueTypeId, CreateFields found) {
+            List<CreateFieldItem> fields = found.fields().stream().map(CreateFieldItem::of).toList();
+            return new CreateFieldsView(project, issueTypeId, fields,
+                    found.truncated() || fields.stream().anyMatch(CreateFieldItem::allowedValuesTruncated));
+        }
+    }
+
+    record LinkTypeItem(@Nullable String id, String name, @Nullable String inward, @Nullable String outward) {
+
+        static LinkTypeItem of(LinkType t) {
+            return new LinkTypeItem(JiraToolViews.name(t.id()), JiraToolViews.name(t.name()), label(t.inward()), label(t.outward()));
+        }
+    }
+
+    record LinkTypesView(List<LinkTypeItem> linkTypes, boolean truncated) {
+    }
+
+    record CurrentUserView(String username, @Nullable String key, UntrustedText displayName, boolean active) {
+
+        static CurrentUserView of(CurrentUser u) {
+            return new CurrentUserView(JiraToolViews.username(u.name()), JiraToolViews.username(u.key()),
+                    UntrustedText.plain(u.displayName(), MAX_USERNAME), u.active());
+        }
+    }
+
+    /** {@code omitted} is empty when {@code content} is the file's text, else one fixed code saying why it is not. */
+    record AttachmentContentView(String issueKey, String id, UntrustedText filename, @Nullable String mimeType,
+            UntrustedText content, List<String> omitted) {
+
+        static AttachmentContentView of(String issueKey, AttachmentText file) {
+            JiraAttachment attachment = file.attachment();
+            return new AttachmentContentView(issueKey, attachment.id(), UntrustedText.plain(attachment.filename(), MAX_FILENAME),
+                    label(attachment.mimeType()), UntrustedText.plainCut(file.text(), file.truncated()),
+                    file.omittedReason() == null ? List.of() : List.of(file.omittedReason()));
+        }
+    }
+
+    record BoardItem(String id, UntrustedText name, @Nullable String type, @Nullable String project) {
+
+        static BoardItem of(JiraBoard b) {
+            return new BoardItem(b.id(), UntrustedText.plain(b.name(), MAX_LABEL), JiraToolViews.name(b.type()), b.projectKey());
+        }
+    }
+
+    record SprintItem(String id, UntrustedText name, @Nullable String state, @Nullable String startDate,
+            @Nullable String endDate, @Nullable String completeDate, @Nullable UntrustedText goal) {
+
+        static SprintItem of(JiraSprint s) {
+            return new SprintItem(s.id(), UntrustedText.plain(s.name(), MAX_LABEL), JiraToolViews.name(s.state()), timestamp(s.startDate()),
+                    timestamp(s.endDate()), timestamp(s.completeDate()),
+                    s.goal() == null || s.goal().isBlank() ? null : UntrustedText.plain(s.goal(), MAX_GOAL));
+        }
+    }
+
+    record WatcherView(String issueKey, String username) {
+    }
+
+    record UnlinkView(String outwardIssueKey, String inwardIssueKey, String linkId) {
     }
 
     record CreatedView(String issueKey, String project) {

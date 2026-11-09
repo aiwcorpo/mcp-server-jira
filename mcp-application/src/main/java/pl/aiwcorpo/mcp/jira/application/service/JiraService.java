@@ -4,19 +4,29 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import pl.aiwcorpo.mcp.jira.core.domain.AmbiguousTransitionException;
+import pl.aiwcorpo.mcp.jira.core.domain.AttachmentText;
+import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
+import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
+import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueLinkEnds;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeStatuses;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraAttachment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
+import pl.aiwcorpo.mcp.jira.core.domain.LinkType;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
+import pl.aiwcorpo.mcp.jira.core.domain.SprintPage;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionNotAvailableException;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
@@ -32,6 +42,13 @@ public class JiraService implements JiraUseCase {
     public static final int USER_LOOKUP_SIZE = 20;
     /** Most projects read from Jira's unpaged list; the answer says when there were more. */
     public static final int MAX_PROJECTS = 500;
+
+    /** Fields of the create screen of one issue type that are read; the answer says when there were more. */
+    public static final int MAX_CREATE_FIELDS = 100;
+    /** Text of an attachment handed to the model, in characters. */
+    public static final int ATTACHMENT_TEXT_MAX = 50_000;
+    /** Projects of one board that are judged; a board on more of them is refused as if it were not visible. */
+    public static final int MAX_BOARD_PROJECTS = 50;
 
     private final JiraResourcePort jira;
 
@@ -149,6 +166,102 @@ public class JiraService implements JiraUseCase {
     @Override
     public List<JiraAttachment> listAttachments(String issueKey) {
         return jira.listAttachments(issueKey).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public ChangelogPage changelog(String issueKey, int startAt) {
+        return jira.changelog(issueKey, startAt, PAGE_SIZE).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public List<IssueTypeStatuses> projectStatuses(String projectKey) {
+        return jira.projectStatuses(projectKey).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public IssueTypePage issueTypes(String projectKey, int startAt) {
+        return jira.issueTypes(projectKey, startAt, PAGE_SIZE).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public CreateFields createFields(String projectKey, String issueTypeId) {
+        return jira.createFields(projectKey, issueTypeId, MAX_CREATE_FIELDS).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public List<LinkType> linkTypes() {
+        return jira.linkTypes();
+    }
+
+    @Override
+    public CurrentUser currentUser() {
+        return jira.currentUser();
+    }
+
+    @Override
+    public AttachmentText readAttachment(String issueKey, String attachmentId) {
+        return jira.readAttachment(issueKey, attachmentId, ATTACHMENT_TEXT_MAX).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public BoardPage listBoards(String projectKey, String type, int startAt) {
+        return jira.boards(projectKey, type, startAt, PAGE_SIZE).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public List<String> boardProjectKeys(String boardId) {
+        List<String> keys = jira.boardProjectKeys(boardId, MAX_BOARD_PROJECTS + 1).orElseThrow(NotFoundOrDeniedException::new);
+        if (keys.size() > MAX_BOARD_PROJECTS) {
+            throw new NotFoundOrDeniedException();
+        }
+        return keys;
+    }
+
+    @Override
+    public SprintPage listSprints(String boardId, String state, int startAt) {
+        return jira.sprints(boardId, state, startAt, PAGE_SIZE).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public String sprintBoardId(String sprintId) {
+        return jira.sprintBoardId(sprintId).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public IssueSearchResult sprintIssues(String sprintId, int startAt) {
+        return jira.sprintIssues(sprintId, startAt, PAGE_SIZE).orElseThrow(NotFoundOrDeniedException::new);
+    }
+
+    @Override
+    public String addWatcher(String issueKey, String username) {
+        String watcher = username == null ? jira.currentUser().name() : username;
+        if (!jira.addWatcher(issueKey, watcher)) {
+            throw new NotFoundOrDeniedException();
+        }
+        return watcher;
+    }
+
+    @Override
+    public String removeWatcher(String issueKey) {
+        String watcher = jira.currentUser().name();
+        if (!jira.removeWatcher(issueKey, watcher)) {
+            throw new NotFoundOrDeniedException();
+        }
+        return watcher;
+    }
+
+    /**
+     * The link id alone says nothing about the issues it joins, and only the issues the caller named were judged by the
+     * policy; a link between other issues is reported like a missing one, in either orientation of the two keys.
+     */
+    @Override
+    public void removeIssueLink(String linkId, String inwardIssueKey, String outwardIssueKey) {
+        IssueLinkEnds ends = jira.issueLink(linkId).orElseThrow(NotFoundOrDeniedException::new);
+        boolean sameIssues = ends.inwardIssueKey().equals(inwardIssueKey) && ends.outwardIssueKey().equals(outwardIssueKey)
+                || ends.inwardIssueKey().equals(outwardIssueKey) && ends.outwardIssueKey().equals(inwardIssueKey);
+        if (!sameIssues || !linkId.equals(ends.id()) || !jira.deleteIssueLink(linkId)) {
+            throw new NotFoundOrDeniedException();
+        }
     }
 
     /**

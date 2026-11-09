@@ -1,17 +1,26 @@
 package pl.aiwcorpo.mcp.jira.core.port.in;
 
 import java.util.List;
+import pl.aiwcorpo.mcp.jira.core.domain.AttachmentText;
+import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
+import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
+import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeStatuses;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraAttachment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
+import pl.aiwcorpo.mcp.jira.core.domain.LinkType;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
+import pl.aiwcorpo.mcp.jira.core.domain.SprintPage;
 import pl.aiwcorpo.mcp.jira.core.domain.TransitionOutcome;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 
@@ -68,4 +77,48 @@ public interface JiraUseCase {
     WorklogPage listWorklogs(String issueKey, int startAt);
 
     List<JiraAttachment> listAttachments(String issueKey);
+
+    ChangelogPage changelog(String issueKey, int startAt);
+
+    List<IssueTypeStatuses> projectStatuses(String projectKey);
+
+    IssueTypePage issueTypes(String projectKey, int startAt);
+
+    /** @param issueTypeId id from {@link #issueTypes}; the fields are those of the create screen, capped */
+    CreateFields createFields(String projectKey, String issueTypeId);
+
+    List<LinkType> linkTypes();
+
+    CurrentUser currentUser();
+
+    /** Text attachments up to a size limit only; for other files the result says why there is no text. */
+    AttachmentText readAttachment(String issueKey, String attachmentId);
+
+    /** Boards relevant to the project, as Jira lists them; the caller of this method judges the projects of each board. */
+    BoardPage listBoards(String projectKey, String type, int startAt);
+
+    /**
+     * The projects a board is built on. A board built on more projects than the cap is refused like an invisible one:
+     * the caller cannot judge them all.
+     */
+    List<String> boardProjectKeys(String boardId);
+
+    SprintPage listSprints(String boardId, String state, int startAt);
+
+    /** The board a sprint belongs to, which stands for the projects of the sprint. */
+    String sprintBoardId(String sprintId);
+
+    IssueSearchResult sprintIssues(String sprintId, int startAt);
+
+    /** @param username {@code null} watches as the calling user; @return the username that was added */
+    String addWatcher(String issueKey, String username);
+
+    /** Stops the calling user watching the issue; @return that user's username */
+    String removeWatcher(String issueKey);
+
+    /**
+     * Removes one link, only when it joins exactly the two issues the caller named (both judged by the policy).
+     * A link of other issues is reported like a missing one.
+     */
+    void removeIssueLink(String linkId, String inwardIssueKey, String outwardIssueKey);
 }

@@ -1,0 +1,3 @@
+{"issueLinkTypes":[
+ {"id":"10000","name":"Blocks","inward":"is blocked by","outward":"blocks","self":"https://jira.corp.test/rest/api/2/issueLinkType/10000"},
+ {"id":"10001","name":"Relates","inward":"relates to","outward":"relates to","self":"https://jira.corp.test/rest/api/2/issueLinkType/10001"}]}

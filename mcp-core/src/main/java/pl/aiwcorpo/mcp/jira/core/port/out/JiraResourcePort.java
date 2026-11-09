@@ -2,20 +2,30 @@ package pl.aiwcorpo.mcp.jira.core.port.out;
 
 import java.util.List;
 import java.util.Optional;
+import pl.aiwcorpo.mcp.jira.core.domain.AttachmentText;
+import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
+import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
+import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueLinkEnds;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueTransition;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeStatuses;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraAttachment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraComment;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraUser;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
+import pl.aiwcorpo.mcp.jira.core.domain.LinkType;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ServerInfo;
+import pl.aiwcorpo.mcp.jira.core.domain.SprintPage;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 
 /**
@@ -75,4 +85,50 @@ public interface JiraResourcePort {
     Optional<WorklogPage> listWorklogs(String issueKey, int startAt, int maxResults);
 
     Optional<List<JiraAttachment>> listAttachments(String issueKey);
+
+    /** Empty when the issue is not visible to the caller. Jira has no paging for the history of an issue, so the page is cut here. */
+    Optional<ChangelogPage> changelog(String issueKey, int startAt, int maxResults);
+
+    /** Empty when the project is not visible to the caller. */
+    Optional<List<IssueTypeStatuses>> projectStatuses(String projectKey);
+
+    /** Issue types the caller may create in the project; empty when the project is not visible to the caller. */
+    Optional<IssueTypePage> issueTypes(String projectKey, int startAt, int maxResults);
+
+    /** Empty when the project or the issue type is not visible to the caller; reads at most {@code maxFields} fields. */
+    Optional<CreateFields> createFields(String projectKey, String issueTypeId, int maxFields);
+
+    List<LinkType> linkTypes();
+
+    /** The account the caller's credential belongs to. */
+    CurrentUser currentUser();
+
+    /** Empty when the issue or the attachment (of that issue) is not visible to the caller. */
+    Optional<AttachmentText> readAttachment(String issueKey, String attachmentId, int maxChars);
+
+    /** Boards relevant to the project; empty when Jira does not show the project's boards to the caller. */
+    Optional<BoardPage> boards(String projectKey, String type, int startAt, int maxResults);
+
+    /** At most {@code limit} keys of the projects the board is built on; empty when the board is not visible to the caller. */
+    Optional<List<String>> boardProjectKeys(String boardId, int limit);
+
+    /** Empty when the board is not visible to the caller; Jira refuses boards that have no sprints (400). */
+    Optional<SprintPage> sprints(String boardId, String state, int startAt, int maxResults);
+
+    /** The board the sprint was created on; empty when the sprint is not visible to the caller. */
+    Optional<String> sprintBoardId(String sprintId);
+
+    Optional<IssueSearchResult> sprintIssues(String sprintId, int startAt, int maxResults);
+
+    /** @return false when the issue is not visible to the caller */
+    boolean addWatcher(String issueKey, String username);
+
+    /** @return false when the issue is not visible to the caller */
+    boolean removeWatcher(String issueKey, String username);
+
+    /** Empty when the link is not visible to the caller. */
+    Optional<IssueLinkEnds> issueLink(String linkId);
+
+    /** @return false when the link is not visible to the caller */
+    boolean deleteIssueLink(String linkId);
 }

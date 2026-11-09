@@ -1,18 +1,23 @@
 package pl.aiwcorpo.mcp.jira.integration;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +38,20 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
+import pl.aiwcorpo.mcp.jira.core.domain.AttachmentText;
+import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogEntry;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
+import pl.aiwcorpo.mcp.jira.core.domain.CreateFields;
+import pl.aiwcorpo.mcp.jira.core.domain.CurrentUser;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueLinkEnds;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeInfo;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypeStatuses;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraBoard;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraSprint;
+import pl.aiwcorpo.mcp.jira.core.domain.LinkType;
+import pl.aiwcorpo.mcp.jira.core.domain.SprintPage;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueComment;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
@@ -56,6 +75,8 @@ import pl.aiwcorpo.mcp.jira.core.port.out.JiraResourcePort;
 import pl.aiwcorpo.mcp.platform.security.BackendCredential;
 import pl.aiwcorpo.mcp.platform.security.CredentialContext;
 import pl.aiwcorpo.mcp.platform.security.CredentialRequiredException;
+import pl.aiwcorpo.mcp.platform.text.TextHygiene;
+import pl.aiwcorpo.mcp.platform.text.UntrustedText;
 
 /**
  * Calls the Jira Data Center REST API v2 as the user: with the PAT the gateway resolved for this request
@@ -88,6 +109,14 @@ public class JiraResourceAdapter implements JiraResourcePort {
     private static final java.util.regex.Pattern ID = java.util.regex.Pattern.compile("[0-9]{1,18}");
     private static final java.util.regex.Pattern ISSUE_KEY =
             java.util.regex.Pattern.compile("[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}");
+
+    /** Attachments larger than this are not downloaded; the model gets the reason instead. */
+    static final long MAX_ATTACHMENT_BYTES = 200_000;
+    /** Most allowed values of one create field that are kept; the tool shows fewer and says when there were more. */
+    private static final int MAX_ALLOWED_VALUES = 100;
+    private static final Set<String> TEXT_APPLICATION_TYPES = Set.of("application/json", "application/xml");
+    private static final java.util.regex.Pattern FIELD_ID = java.util.regex.Pattern.compile("[A-Za-z0-9_.-]{1,60}");
+    private static final java.util.regex.Pattern PROJECT_KEY = java.util.regex.Pattern.compile("[A-Z][A-Z0-9_]{1,9}");
 
     private static final String DEV_PROFILE = "dev";
     private static final Logger LOG = LoggerFactory.getLogger(JiraResourceAdapter.class);
@@ -503,6 +532,256 @@ public class JiraResourceAdapter implements JiraResourcePort {
                 .map(AttachmentIssueResponse::toDomain);
     }
 
+    @Override
+    public Optional<ChangelogPage> changelog(String issueKey, int startAt, int maxResults) {
+        // Jira Data Center has no paged changelog endpoint on every supported version, so the history comes with the
+        // issue (expand=changelog, nothing else of the issue) and the page is cut here.
+        return asUser(() -> client.get()
+                .uri("/rest/api/2/issue/{key}?fields=summary&expand=changelog", issueKey)
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(ChangelogIssueResponse.class))
+                .map(response -> response.toDomain(startAt, maxResults));
+    }
+
+    @Override
+    public Optional<List<IssueTypeStatuses>> projectStatuses(String projectKey) {
+        return asUser(() -> client.get()
+                .uri("/rest/api/2/project/{key}/statuses", projectKey)
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(StatusesOfTypeEntry[].class))
+                .map(entries -> {
+                    List<IssueTypeStatuses> found = new ArrayList<>();
+                    for (StatusesOfTypeEntry entry : entries) {
+                        found.add(entry.toDomain());
+                    }
+                    return found;
+                });
+    }
+
+    @Override
+    public Optional<IssueTypePage> issueTypes(String projectKey, int startAt, int maxResults) {
+        try {
+            return asUser(() -> client.get()
+                    .uri("/rest/api/2/issue/createmeta/{key}/issuetypes?startAt={start}&maxResults={max}",
+                            projectKey, startAt, maxResults)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(IssueTypesMetaResponse.class))
+                    .map(response -> response.toDomain(startAt));
+        } catch (HttpClientErrorException.BadRequest unknownProject) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<CreateFields> createFields(String projectKey, String issueTypeId, int maxFields) {
+        try {
+            return asUser(() -> client.get()
+                    .uri("/rest/api/2/issue/createmeta/{key}/issuetypes/{type}?startAt=0&maxResults={max}",
+                            projectKey, issueTypeId, maxFields)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(CreateFieldsResponse.class))
+                    .map(CreateFieldsResponse::toDomain);
+        } catch (HttpClientErrorException.BadRequest unknownType) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public List<LinkType> linkTypes() {
+        return asUser(() -> client.get()
+                .uri("/rest/api/2/issueLinkType")
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(LinkTypesResponse.class))
+                .orElseThrow(() -> new BackendResponseException("link types not available"))
+                .toDomain();
+    }
+
+    @Override
+    public CurrentUser currentUser() {
+        return asUser(() -> client.get()
+                .uri("/rest/api/2/myself")
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(MyselfResponse.class))
+                .orElseThrow(() -> new BackendResponseException("current user not available"))
+                .toDomain();
+    }
+
+    @Override
+    public Optional<AttachmentText> readAttachment(String issueKey, String attachmentId, int maxChars) {
+        Optional<List<JiraAttachment>> attachments = listAttachments(issueKey);
+        Optional<JiraAttachment> attachment = attachments.flatMap(list -> list.stream()
+                .filter(candidate -> attachmentId.equals(candidate.id())).findFirst());
+        if (attachment.isEmpty()) {
+            return Optional.empty();
+        }
+        JiraAttachment file = attachment.get();
+        if (!isTextMedia(file.mimeType())) {
+            return Optional.of(new AttachmentText(file, "", false, "binary_attachment"));
+        }
+        if (file.size() < 0 || file.size() > MAX_ATTACHMENT_BYTES) {
+            return Optional.of(new AttachmentText(file, "", false, "attachment_too_large"));
+        }
+        // The download address is built from the configured base URL and the id; the `content` link of Jira's answer
+        // names whatever host Jira believes it has, and the credential must not go there.
+        String name = file.filename().isBlank() || file.filename().equals(".") || file.filename().equals("..")
+                ? "attachment" : file.filename();
+        Optional<byte[]> data = asUser(() -> {
+            byte[] bytes = client.get()
+                    .uri("/secure/attachment/{id}/{name}", file.id(), name)
+                    .accept(MediaType.ALL)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(byte[].class);
+            return bytes == null ? new byte[0] : bytes;
+        });
+        if (data.isEmpty()) {
+            return Optional.empty();
+        }
+        String text = TextHygiene.normalize(new String(data.get(), StandardCharsets.UTF_8));
+        String cut = UntrustedText.cut(text, maxChars);
+        return Optional.of(new AttachmentText(file, cut, cut.length() < text.length(), null));
+    }
+
+    private static boolean isTextMedia(String mediaType) {
+        if (mediaType == null) {
+            return false;
+        }
+        String base = mediaType.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
+        return base.startsWith("text/") || TEXT_APPLICATION_TYPES.contains(base);
+    }
+
+    @Override
+    public Optional<BoardPage> boards(String projectKey, String type, int startAt, int maxResults) {
+        try {
+            return asUser(() -> (type == null
+                    ? client.get().uri("/rest/agile/1.0/board?projectKeyOrId={key}&startAt={start}&maxResults={max}",
+                            projectKey, startAt, maxResults)
+                    : client.get().uri("/rest/agile/1.0/board?projectKeyOrId={key}&type={type}&startAt={start}&maxResults={max}",
+                            projectKey, type, startAt, maxResults))
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(BoardsResponse.class))
+                    .map(response -> response.toDomain(startAt));
+        } catch (HttpClientErrorException.BadRequest unknownProject) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<List<String>> boardProjectKeys(String boardId, int limit) {
+        try {
+            return asUser(() -> client.get()
+                    .uri("/rest/agile/1.0/board/{id}/project?startAt=0&maxResults={max}", boardId, limit)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(BoardProjectsResponse.class))
+                    .map(BoardProjectsResponse::toKeys);
+        } catch (HttpClientErrorException.BadRequest unknownBoard) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<SprintPage> sprints(String boardId, String state, int startAt, int maxResults) {
+        try {
+            return asUser(() -> (state == null
+                    ? client.get().uri("/rest/agile/1.0/board/{id}/sprint?startAt={start}&maxResults={max}",
+                            boardId, startAt, maxResults)
+                    : client.get().uri("/rest/agile/1.0/board/{id}/sprint?state={state}&startAt={start}&maxResults={max}",
+                            boardId, state, startAt, maxResults))
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(SprintsResponse.class))
+                    .map(response -> response.toDomain(startAt));
+        } catch (HttpClientErrorException.BadRequest noSprints) {
+            throw new RejectedByJiraException(Operation.SPRINTS);
+        }
+    }
+
+    @Override
+    public Optional<String> sprintBoardId(String sprintId) {
+        return asUser(() -> client.get()
+                .uri("/rest/agile/1.0/sprint/{id}", sprintId)
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(SprintOriginResponse.class))
+                .flatMap(response -> response.originBoardId() == null
+                        ? Optional.empty() : Optional.of(requireId(String.valueOf(response.originBoardId()), "board")));
+    }
+
+    @Override
+    public Optional<IssueSearchResult> sprintIssues(String sprintId, int startAt, int maxResults) {
+        try {
+            return asUser(() -> client.get()
+                    .uri("/rest/agile/1.0/sprint/{id}/issue?startAt={start}&maxResults={max}&fields={fields}",
+                            sprintId, startAt, maxResults, String.join(",", SEARCH_FIELDS))
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .body(SearchResponse.class))
+                    .map(response -> response.toDomain(startAt));
+        } catch (HttpClientErrorException.BadRequest unknownSprint) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean addWatcher(String issueKey, String username) {
+        try {
+            // Jira takes the bare JSON string as the body; a String handed to the client would be sent without quotes.
+            return expectNoContent(asUser(() -> client.post()
+                    .uri("/rest/api/2/issue/{key}/watchers", issueKey)
+                    .headers(credential()::applyTo)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(PROJECT_JSON.writeValueAsString(username))
+                    .retrieve()
+                    .toBodilessEntity()), 204, "add watcher");
+        } catch (HttpClientErrorException.BadRequest rejected) {
+            throw new RejectedByJiraException(Operation.WATCHER);
+        }
+    }
+
+    @Override
+    public boolean removeWatcher(String issueKey, String username) {
+        try {
+            return expectNoContent(asUser(() -> client.delete()
+                    .uri("/rest/api/2/issue/{key}/watchers?username={name}", issueKey, username)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .toBodilessEntity()), 204, "remove watcher");
+        } catch (HttpClientErrorException.BadRequest rejected) {
+            throw new RejectedByJiraException(Operation.WATCHER);
+        }
+    }
+
+    @Override
+    public Optional<IssueLinkEnds> issueLink(String linkId) {
+        return asUser(() -> client.get()
+                .uri("/rest/api/2/issueLink/{id}", linkId)
+                .headers(credential()::applyTo)
+                .retrieve()
+                .body(IssueLinkResponse.class))
+                .map(IssueLinkResponse::toDomain);
+    }
+
+    @Override
+    public boolean deleteIssueLink(String linkId) {
+        try {
+            return expectNoContent(asUser(() -> client.delete()
+                    .uri("/rest/api/2/issueLink/{id}", linkId)
+                    .headers(credential()::applyTo)
+                    .retrieve()
+                    .toBodilessEntity()), 204, "unlink");
+        } catch (HttpClientErrorException.BadRequest rejected) {
+            throw new RejectedByJiraException(Operation.UNLINK);
+        }
+    }
+
     /** Jira confirms these writes with a bodiless success of one exact status; any other 2xx is not a confirmation. */
     private static boolean expectNoContent(Optional<ResponseEntity<Void>> answer, int status,
             String operation) {
@@ -836,6 +1115,252 @@ public class JiraResourceAdapter implements JiraResourcePort {
                 return List.of();
             }
             return fields.attachment().stream().map(AttachmentEntry::toDomain).toList();
+        }
+    }
+
+    /** Offset of the next page of an Agile answer, which says {@code isLast} and often has no total. */
+    static Integer nextStartAt(int startAt, int returned, Integer total, Boolean isLast) {
+        if (returned == 0 || Boolean.TRUE.equals(isLast)) {
+            return null;
+        }
+        return total != null ? nextStartAt(startAt, returned, total) : Boolean.FALSE.equals(isLast) ? startAt + returned : null;
+    }
+
+    private static String requireText(String value, String what) {
+        if (value == null || value.isBlank()) {
+            throw new BackendResponseException(what + " without a name");
+        }
+        return value;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record HistoryAuthor(String displayName) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record HistoryItem(String field, @JsonProperty("fromString") String fromValue, @JsonProperty("toString") String toValue) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record History(String id, HistoryAuthor author, String created, List<HistoryItem> items) {
+
+        ChangelogEntry toDomain() {
+            List<ChangelogEntry.FieldChange> changes = new ArrayList<>();
+            for (HistoryItem item : items == null ? List.<HistoryItem>of() : items) {
+                changes.add(new ChangelogEntry.FieldChange(item.field(), item.fromValue(), item.toValue()));
+            }
+            return new ChangelogEntry(requireId(id, "change"), author == null ? null : author.displayName(), created, changes);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Changelog(List<History> histories) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ChangelogIssueResponse(String key, Changelog changelog) {
+
+        ChangelogPage toDomain(int startAt, int maxResults) {
+            if (key == null || key.isBlank()) {
+                throw new BackendResponseException("issue without key");
+            }
+            List<History> all = changelog == null || changelog.histories() == null ? List.of() : changelog.histories();
+            int from = Math.min(startAt, all.size());
+            int end = Math.min(all.size(), from + maxResults);
+            return new ChangelogPage(all.subList(from, end).stream().map(History::toDomain).toList(),
+                    end < all.size() ? end : null);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record StatusCategoryRef(String name) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record StatusEntry(String name, StatusCategoryRef statusCategory) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record StatusesOfTypeEntry(String name, List<StatusEntry> statuses) {
+
+        IssueTypeStatuses toDomain() {
+            List<IssueTypeStatuses.Status> found = new ArrayList<>();
+            for (StatusEntry status : statuses == null ? List.<StatusEntry>of() : statuses) {
+                found.add(new IssueTypeStatuses.Status(requireText(status.name(), "status"),
+                        status.statusCategory() == null ? null : status.statusCategory().name()));
+            }
+            return new IssueTypeStatuses(requireText(name, "issue type"), found);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record IssueTypeEntry(String id, String name, Boolean subtask) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record IssueTypesMetaResponse(Integer total, @JsonProperty("isLast") Boolean last, List<IssueTypeEntry> values) {
+
+        IssueTypePage toDomain(int startAt) {
+            if (values == null) {
+                throw new BackendResponseException("issue types missing");
+            }
+            return new IssueTypePage(values.stream().map(type -> new IssueTypeInfo(requireId(type.id(), "issue type"),
+                    requireText(type.name(), "issue type"), Boolean.TRUE.equals(type.subtask()))).toList(),
+                    nextStartAt(startAt, values.size(), total, last));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record FieldSchema(String type, String items) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CreateFieldEntry(String fieldId, String name, Boolean required, FieldSchema schema, List<JsonNode> allowedValues) {
+
+        CreateFields.Field toDomain() {
+            if (fieldId == null || !FIELD_ID.matcher(fieldId).matches()) {
+                throw new BackendResponseException("field without a usable id");
+            }
+            List<CreateFields.AllowedValue> values = new ArrayList<>();
+            for (JsonNode value : allowedValues == null ? List.<JsonNode>of() : allowedValues) {
+                if (values.size() >= MAX_ALLOWED_VALUES) {
+                    break;
+                }
+                String label = value.isObject() ? firstText(value, "name", "value") : null;
+                if (label != null) {
+                    values.add(new CreateFields.AllowedValue(value.path("id").asString(null), label));
+                }
+            }
+            return new CreateFields.Field(fieldId, name == null ? fieldId : name, Boolean.TRUE.equals(required),
+                    schema == null ? null : schema.type(), schema == null ? null : schema.items(), values);
+        }
+
+        private static String firstText(JsonNode node, String... names) {
+            for (String candidate : names) {
+                String text = node.path(candidate).asString(null);
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+            return null;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CreateFieldsResponse(Integer total, List<CreateFieldEntry> values) {
+
+        CreateFields toDomain() {
+            if (values == null) {
+                throw new BackendResponseException("create fields missing");
+            }
+            return new CreateFields(values.stream().map(CreateFieldEntry::toDomain).toList(),
+                    total != null && total > values.size());
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record LinkTypeEntry(String id, String name, String inward, String outward) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record LinkTypesResponse(List<LinkTypeEntry> issueLinkTypes) {
+
+        List<LinkType> toDomain() {
+            if (issueLinkTypes == null) {
+                throw new BackendResponseException("link types missing");
+            }
+            return issueLinkTypes.stream().map(type -> new LinkType(type.id(), requireText(type.name(), "link type"),
+                    type.inward(), type.outward())).toList();
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MyselfResponse(String name, String key, String displayName, Boolean active) {
+
+        CurrentUser toDomain() {
+            if (name == null || name.isBlank()) {
+                throw new BackendResponseException("user without name");
+            }
+            return new CurrentUser(name, key, displayName == null ? "" : displayName, Boolean.TRUE.equals(active));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BoardLocation(String projectKey) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BoardEntry(Long id, String name, String type, BoardLocation location) {
+
+        JiraBoard toDomain() {
+            String projectKey = location == null || location.projectKey() == null
+                    || !PROJECT_KEY.matcher(location.projectKey()).matches() ? null : location.projectKey();
+            return new JiraBoard(requireId(id == null ? null : String.valueOf(id), "board"),
+                    name == null ? "" : name, type, projectKey);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BoardsResponse(Integer total, @JsonProperty("isLast") Boolean last, List<BoardEntry> values) {
+
+        BoardPage toDomain(int startAt) {
+            if (values == null) {
+                throw new BackendResponseException("boards missing");
+            }
+            return new BoardPage(values.stream().map(BoardEntry::toDomain).toList(),
+                    nextStartAt(startAt, values.size(), total, last));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record BoardProjectsResponse(List<ProjectRef> values) {
+
+        List<String> toKeys() {
+            if (values == null) {
+                throw new BackendResponseException("board projects missing");
+            }
+            return values.stream().map(project -> requireText(project.key(), "project")).toList();
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record SprintEntry(Long id, String name, String state, String startDate, String endDate, String completeDate, String goal) {
+
+        JiraSprint toDomain() {
+            return new JiraSprint(requireId(id == null ? null : String.valueOf(id), "sprint"), name == null ? "" : name,
+                    state, startDate, endDate, completeDate, goal);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record SprintsResponse(Integer total, @JsonProperty("isLast") Boolean last, List<SprintEntry> values) {
+
+        SprintPage toDomain(int startAt) {
+            if (values == null) {
+                throw new BackendResponseException("sprints missing");
+            }
+            return new SprintPage(values.stream().map(SprintEntry::toDomain).toList(),
+                    nextStartAt(startAt, values.size(), total, last));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record SprintOriginResponse(Long originBoardId) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record LinkedIssueRef(String key) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record IssueLinkResponse(String id, LinkedIssueRef inwardIssue, LinkedIssueRef outwardIssue) {
+
+        IssueLinkEnds toDomain() {
+            if (inwardIssue == null || outwardIssue == null || inwardIssue.key() == null || outwardIssue.key() == null
+                    || !ISSUE_KEY.matcher(inwardIssue.key()).matches() || !ISSUE_KEY.matcher(outwardIssue.key()).matches()) {
+                throw new BackendResponseException("link without both issues");
+            }
+            return new IssueLinkEnds(requireId(id, "link"), inwardIssue.key(), outwardIssue.key());
         }
     }
 }

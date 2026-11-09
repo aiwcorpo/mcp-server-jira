@@ -107,6 +107,25 @@ class JiraPolicyDecisionsTest {
     }
 
     @Test
+    void removingALinkNeedsTheUpdateScopeOnBothIssues() {
+        ResolvedResource inScope = issue("ABC-1", "ABC", "Software");
+        ResolvedResource outOfScope = issue("DEF-1", "DEF", "Software");
+        ResolvedResource restricted = issue("HR-1", "HR", "restricted");
+
+        policies.assertAllowed(PolicyDecisions.caller(READ, WRITE, ABC), "update", inScope);
+        policies.assertDenied(PolicyDecisions.caller(READ, WRITE, ABC), "update", outOfScope);
+        policies.assertDenied(PolicyDecisions.caller(READ, WRITE, ABC, HR), "update", restricted);
+    }
+
+    @Test
+    void watchingAndReadingTheNewMetadataFollowTheExistingGroups() {
+        policies.assertAllowed(PolicyDecisions.caller(READ, WRITE, ABC), "update", issue("ABC-1", "ABC", "Software"));
+        policies.assertDenied(PolicyDecisions.caller(READ, ABC), "update", issue("ABC-1", "ABC", "Software"));
+        policies.assertAllowed(PolicyDecisions.caller(READ), "read", project("ABC", ""));
+        policies.assertDenied(PolicyDecisions.caller(), "read", project("ABC", ""));
+    }
+
+    @Test
     void aWholeProjectIsNeverDeleted() {
         policies.assertDenied(PolicyDecisions.caller(READ, WRITE, DESTRUCTIVE, ABC), "delete", project("ABC", "Software"));
     }

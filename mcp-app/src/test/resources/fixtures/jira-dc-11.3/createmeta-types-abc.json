@@ -1,0 +1,4 @@
+{"maxResults":50,"startAt":0,"total":3,"isLast":true,"values":[
+ {"self":"https://jira.corp.test/rest/api/2/issuetype/10002","id":"10002","description":"A task that needs to be done.","name":"Task","subtask":false,"iconUrl":"https://jira.corp.test/images/icons/issuetypes/task.png"},
+ {"self":"https://jira.corp.test/rest/api/2/issuetype/10004","id":"10004","description":"A problem which impairs or prevents the functions of the product.","name":"Bug","subtask":false},
+ {"self":"https://jira.corp.test/rest/api/2/issuetype/10003","id":"10003","description":"The sub-task of the issue","name":"Sub-task","subtask":true}]}

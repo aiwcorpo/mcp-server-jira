@@ -37,6 +37,9 @@ class DegradedModeTest extends ServerTestSupport {
         changes.put("unassign_issue", Map.of("issueKey", "ABC-1"));
         changes.put("link_issues", Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "DEF-5", "linkType", "Blocks"));
         changes.put("add_worklog", Map.of("issueKey", "ABC-1", "timeSpent", "1h"));
+        changes.put("add_watcher", Map.of("issueKey", "ABC-1"));
+        changes.put("unwatch_issue", Map.of("issueKey", "ABC-1"));
+        changes.put("detach_issue_link", Map.of("outwardIssueKey", "ABC-1", "inwardIssueKey", "ABC-2", "linkId", "90001"));
         try (McpSyncClient client = clientWithCredential(PAT);
                 McpSyncClient eraser = clientWithToken(ServerTestSupport::eraser, PAT)) {
             changes.forEach((tool, arguments) -> {

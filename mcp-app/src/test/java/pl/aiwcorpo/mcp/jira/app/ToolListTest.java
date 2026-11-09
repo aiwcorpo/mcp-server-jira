@@ -12,9 +12,12 @@ import org.junit.jupiter.api.Test;
 class ToolListTest extends ServerTestSupport {
 
     static final List<String> READ_TOOLS = List.of("search_issues", "get_issue", "list_comments", "list_transitions",
-            "get_project", "list_projects", "find_assignable_users", "list_worklogs", "list_attachments");
+            "get_project", "list_projects", "find_assignable_users", "list_worklogs", "list_attachments", "get_issue_changelog",
+            "list_statuses", "list_issue_types", "get_create_fields", "list_link_types", "get_current_user",
+            "read_attachment", "list_boards", "list_sprints", "list_sprint_issues");
     static final List<String> UPDATE_TOOLS = List.of("add_comment", "edit_comment", "transition_issue", "create_issue",
-            "update_issue", "assign_issue", "unassign_issue", "link_issues", "add_worklog");
+            "update_issue", "assign_issue", "unassign_issue", "link_issues", "add_worklog", "add_watcher", "unwatch_issue",
+            "detach_issue_link");
     static final List<String> READ_TOOLS_AND_WRITE_TOOLS = java.util.stream.Stream
             .concat(java.util.stream.Stream.concat(READ_TOOLS.stream(), UPDATE_TOOLS.stream()), java.util.stream.Stream.of("delete_issue"))
             .toList();
@@ -80,7 +83,8 @@ class ToolListTest extends ServerTestSupport {
     @Test
     @SuppressWarnings("unchecked")
     void listsTakeAnOpaqueCursorAndNoOffset() {
-        for (String tool : List.of("search_issues", "list_comments", "list_worklogs", "list_projects")) {
+        for (String tool : List.of("search_issues", "list_comments", "list_worklogs", "list_projects", "get_issue_changelog",
+                "list_issue_types", "list_boards", "list_sprints", "list_sprint_issues")) {
             Map<String, Map<String, Object>> properties =
                     (Map<String, Map<String, Object>>) listedTool(tool).inputSchema().get("properties");
             assertThat(properties).as(tool).containsKey("cursor").doesNotContainKeys("startAt", "offset", "page", "limit");

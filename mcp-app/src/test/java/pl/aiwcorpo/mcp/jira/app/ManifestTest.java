@@ -128,10 +128,11 @@ class ManifestTest extends ServerTestSupport {
         Map<String, String> refArguments = new java.util.HashMap<>();
         for (String tool : List.of("get_issue", "list_comments", "list_transitions", "list_worklogs", "list_attachments",
                 "add_comment", "edit_comment", "transition_issue", "update_issue", "assign_issue", "unassign_issue",
-                "add_worklog", "delete_issue")) {
+                "add_worklog", "delete_issue", "get_issue_changelog", "read_attachment", "add_watcher", "unwatch_issue")) {
             refArguments.put(tool, "issueKey");
         }
-        for (String tool : List.of("search_issues", "get_project", "find_assignable_users", "create_issue")) {
+        for (String tool : List.of("search_issues", "get_project", "find_assignable_users", "create_issue", "list_statuses",
+                "list_issue_types", "get_create_fields", "list_boards")) {
             refArguments.put(tool, "project");
         }
         JsonNode manifest = manifest();
@@ -144,7 +145,11 @@ class ManifestTest extends ServerTestSupport {
             assertThat(tool.get("risk").asString()).as(name).isEqualTo(risk);
             if ("list_projects".equals(name)) {
                 assertThat(tool.get("resourceRefs")).as("the projects are judged one by one in the result").isEmpty();
-            } else if ("link_issues".equals(name)) {
+            } else if (List.of("list_link_types", "get_current_user").contains(name)) {
+                assertThat(tool.get("resourceRefs")).as("instance-wide metadata: the read group only").isEmpty();
+            } else if (List.of("list_sprints", "list_sprint_issues").contains(name)) {
+                assertThat(tool.get("resourceRefs")).as("the board of a sprint is judged by the tool itself").isEmpty();
+            } else if ("link_issues".equals(name) || "detach_issue_link".equals(name)) {
                 assertThat(tool.get("resourceRefs")).as(name).hasSize(2);
                 assertThat(List.of(tool.at("/resourceRefs/0/argument").asString(), tool.at("/resourceRefs/1/argument").asString()))
                         .containsExactlyInAnyOrder("outwardIssueKey", "inwardIssueKey");

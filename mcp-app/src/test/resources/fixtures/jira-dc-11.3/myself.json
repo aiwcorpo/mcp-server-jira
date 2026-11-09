@@ -1,0 +1,3 @@
+{"self":"https://jira.corp.test/rest/api/2/user?username=jkowalski","key":"JIRAUSER10000","name":"jkowalski",
+ "emailAddress":"jkowalski@corp.test","displayName":"Jan Kowalski","active":true,"deleted":false,"timeZone":"Europe/Warsaw","locale":"en_GB","avatarUrls":{"48x48":"https://jira.corp.test/secure/useravatar?avatarId=10122"},
+ "groups":{"size":2,"items":[]},"applicationRoles":{"size":1,"items":[]}}

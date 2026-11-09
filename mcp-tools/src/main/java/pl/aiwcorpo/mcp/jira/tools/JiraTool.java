@@ -7,38 +7,57 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
+import pl.aiwcorpo.mcp.jira.core.domain.BoardPage;
+import pl.aiwcorpo.mcp.jira.core.domain.ChangelogPage;
 import pl.aiwcorpo.mcp.jira.core.domain.CommentPage;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueChanges;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearch;
 import pl.aiwcorpo.mcp.jira.core.domain.IssueSearchResult;
+import pl.aiwcorpo.mcp.jira.core.domain.IssueTypePage;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraAttachment;
+import pl.aiwcorpo.mcp.jira.core.domain.JiraBoard;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraIssue;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraResourceModel;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraWorklog;
+import pl.aiwcorpo.mcp.jira.core.domain.LinkType;
 import pl.aiwcorpo.mcp.jira.core.domain.NewIssue;
+import pl.aiwcorpo.mcp.jira.core.domain.NotFoundOrDeniedException;
+import pl.aiwcorpo.mcp.jira.core.domain.SprintPage;
 import pl.aiwcorpo.mcp.jira.core.domain.JiraProject;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectList;
 import pl.aiwcorpo.mcp.jira.core.domain.ProjectSummary;
 import pl.aiwcorpo.mcp.jira.application.service.JiraService;
 import pl.aiwcorpo.mcp.jira.core.domain.WorklogPage;
 import pl.aiwcorpo.mcp.jira.core.port.in.JiraUseCase;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.AttachmentContentView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.AttachmentItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.AttachmentsView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.BoardItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.ChangedView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.ChangelogItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.CommentItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.CommentView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.CreateFieldsView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.CreatedView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.CurrentUserView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.DeleteView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.IssueListItem;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.IssueTypeItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.IssueView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.LinkTypeItem;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.LinkTypesView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.LinkView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.ProjectListItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.ProjectView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.SprintItem;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.StatusesView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.TransitionItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.TransitionView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.UnlinkView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.TransitionsView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.UserItem;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.UsersView;
+import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.WatcherView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.WorklogCreatedView;
 import pl.aiwcorpo.mcp.jira.tools.JiraToolViews.WorklogItem;
 import pl.aiwcorpo.mcp.platform.error.InvalidToolArgumentException;
@@ -82,6 +101,10 @@ public class JiraTool {
     private static final Pattern NEW_KEY = Pattern.compile("[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}");
     static final Pattern TRANSITION_ID = Pattern.compile("[1-9][0-9]{0,9}");
     static final String COMMENT_ID_PATTERN = "^[0-9]{1,18}$";
+    /** Ids of issue types, attachments, issue links, boards and sprints: decimal numbers. */
+    static final String NUMERIC_ID_PATTERN = "^[0-9]{1,18}$";
+    static final String SPRINT_STATE_PATTERN = "^(?:active|future|closed)$";
+    static final String BOARD_TYPE_PATTERN = "^(?:scrum|kanban)$";
     static final String LABEL_PATTERN = "^[A-Za-z0-9_.:-]{1,50}$";
     static final String ORDER_BY_PATTERN = "^(?:updated|created|priority|key)$";
     static final String ORDER_PATTERN = "^(?:asc|desc)$";
@@ -348,6 +371,222 @@ public class JiraTool {
                 attachments.size() > JiraToolViews.MAX_ATTACHMENTS);
     }
 
+    @Tool(name = "get_issue_changelog", description = "Returns the change history of one Jira issue, oldest first, 25 "
+            + "changes per page: id, author display name and creation time, and for each changed field its name and the "
+            + "old and new value as written by Jira users, marked as untrusted data (plain text, each cut at 500 "
+            + "characters, at most 50 fields per change). Pass nextCursor back to get the next page.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("Get issue changelog")
+    public PagedResult<ChangelogItem> getIssueChangelog(
+            @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
+            @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
+            @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
+            String cursor) {
+        String key = resolved(issueKey).key();
+        String fingerprint = CursorCodec.fingerprint("get_issue_changelog", key);
+        ChangelogPage page = useCase.changelog(key, position(cursor, "get_issue_changelog", fingerprint));
+        List<ChangelogItem> items = page.entries().stream().map(ChangelogItem::of).toList();
+        boolean truncated = false;
+        for (int i = 0; i < items.size(); i++) {
+            truncated |= ChangelogItem.truncated(page.entries().get(i), items.get(i));
+        }
+        return new PagedResult<>(items, nextCursor("get_issue_changelog", fingerprint, page.nextStartAt()), truncated,
+                List.of());
+    }
+
+    @Tool(name = "list_statuses", description = "Lists the statuses of one Jira project for each of its issue types: "
+            + "status name and status category (To Do, In Progress, Done), at most 50 issue types and 50 statuses "
+            + "each (truncated says when something was left out). Names are set by Jira administrators. Use a status "
+            + "name as the status filter of search_issues.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("List statuses")
+    public StatusesView listStatuses(
+            @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
+            @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
+            @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project) {
+        String currentKey = resolvedProject(project).key();
+        return StatusesView.of(currentKey, useCase.projectStatuses(currentKey));
+    }
+
+    @Tool(name = "list_issue_types", description = "Lists the issue types the caller may create in one Jira project, "
+            + "25 per page: id (use it with get_create_fields), name as set by Jira administrators and whether it is "
+            + "a sub-task type. Pass nextCursor back to get the next page.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("List issue types")
+    public PagedResult<IssueTypeItem> listIssueTypes(
+            @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
+            @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
+            @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
+            @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
+            @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
+            String cursor) {
+        String currentKey = resolvedProject(project).key();
+        String fingerprint = CursorCodec.fingerprint("list_issue_types", currentKey);
+        IssueTypePage page = useCase.issueTypes(currentKey, position(cursor, "list_issue_types", fingerprint));
+        return PagedResult.of(page.issueTypes().stream().map(IssueTypeItem::of).toList(),
+                nextCursor("list_issue_types", fingerprint, page.nextStartAt()));
+    }
+
+    @Tool(name = "get_create_fields", description = "Returns the fields Jira offers when creating an issue of one "
+            + "issue type in one project: field id, name, whether it is required, schema type (and the type of the "
+            + "elements of an array field) and the allowed values (id and name, at most 20 per field; "
+            + "allowedValuesTruncated says when there are more). At most 100 fields (truncated says when there are "
+            + "more). Names are set by Jira administrators. Use it to see which fields a project requires before "
+            + "create_issue.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("Get create fields")
+    public CreateFieldsView getCreateFields(
+            @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
+            @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
+            @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
+            @ToolParam(description = "Issue type id from list_issue_types, digits")
+            @ArgumentLimits(minLength = 1, maxLength = 18, pattern = NUMERIC_ID_PATTERN)
+            String issueTypeId) {
+        String currentKey = resolvedProject(project).key();
+        return CreateFieldsView.of(currentKey, issueTypeId, useCase.createFields(currentKey, issueTypeId));
+    }
+
+    @Tool(name = "list_link_types", description = "Lists the issue link types of the Jira instance: id, name (use it "
+            + "with link_issues) and the inward and outward sentence of the link, at most 50. Set by Jira "
+            + "administrators.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("List link types")
+    public LinkTypesView listLinkTypes() {
+        List<LinkType> types = useCase.linkTypes();
+        return new LinkTypesView(types.stream().limit(JiraToolViews.MAX_LINK_TYPES).map(LinkTypeItem::of).toList(),
+                types.size() > JiraToolViews.MAX_LINK_TYPES);
+    }
+
+    @Tool(name = "get_current_user", description = "Returns the Jira user the caller's credential belongs to: "
+            + "username, user key, display name as written by the user (untrusted data) and whether the account is "
+            + "active. No e-mail address.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("Get current user")
+    public CurrentUserView getCurrentUser() {
+        return CurrentUserView.of(useCase.currentUser());
+    }
+
+    @Tool(name = "read_attachment", description = "Returns the text of a text attachment (text/*, JSON or XML, at "
+            + "most 200000 bytes) of one Jira issue, cut at 50000 characters (content.truncated). Other files are not "
+            + "returned: omitted holds binary_attachment or attachment_too_large and content is empty. The text is "
+            + "written by Jira users and marked as untrusted data.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("Read attachment")
+    public AttachmentContentView readAttachment(
+            @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
+            @ToolParam(description = "Attachment id from list_attachments, digits")
+            @ArgumentLimits(minLength = 1, maxLength = 18, pattern = NUMERIC_ID_PATTERN)
+            String attachmentId) {
+        String key = resolved(issueKey).key();
+        return AttachmentContentView.of(key, useCase.readAttachment(key, attachmentId));
+    }
+
+    /**
+     * Boards and sprints are not resources of the policy; a board belongs to the projects its filter covers, and those
+     * are. A board whose projects the caller may not all read is refused like a missing one, because its sprints and
+     * their dates say something about every project on it. Issues of a sprint are judged one by one in addition, as in
+     * {@code search_issues}.
+     */
+    @Tool(name = "list_boards", description = "Lists the Jira Software boards (scrum and kanban) relevant to one "
+            + "project: id, name as written by Jira users (untrusted data), type and the project the board is located "
+            + "in, 25 per page. Boards located in a project the platform policy does not allow are left out. Needs "
+            + "Jira Software. Pass nextCursor back to get the next page.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("List boards")
+    public PagedResult<BoardItem> listBoards(
+            @ToolParam(description = "Project key, 2-10 upper-case letters, digits or '_', starting with a letter")
+            @ArgumentLimits(minLength = 2, maxLength = JiraResourceModel.PROJECT_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.PROJECT_TYPE)
+            @ResourceRef(type = JiraResourceModel.PROJECT_TYPE) String project,
+            @ToolParam(description = "Board type: scrum or kanban", required = false)
+            @ArgumentLimits(minLength = 5, maxLength = 6, pattern = BOARD_TYPE_PATTERN)
+            String type,
+            @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
+            @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
+            String cursor) {
+        String currentKey = resolvedProject(project).key();
+        String fingerprint = CursorCodec.fingerprint("list_boards", currentKey, type);
+        int startAt = position(cursor, "list_boards", fingerprint);
+        PageFiller.Filled<JiraBoard> page = PageFiller.fill(cursor == null ? null : Integer.toString(startAt),
+                JiraService.PAGE_SIZE, FILL_READS,
+                from -> {
+                    BoardPage found = useCase.listBoards(currentKey, type, from == null ? 0 : Integer.parseInt(from));
+                    return new PageFiller.BackendPage<>(found.boards(),
+                            found.nextStartAt() == null ? null : found.nextStartAt().toString());
+                },
+                rows -> {
+                    List<JiraBoard> located = policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE,
+                            rows.stream().filter(board -> board.projectKey() != null).toList(), JiraBoard::projectKey);
+                    return rows.stream().filter(board -> board.projectKey() == null || located.contains(board)).toList();
+                });
+        return PagedResult.of(page.items().stream().map(BoardItem::of).toList(),
+                nextCursor("list_boards", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())));
+    }
+
+    @Tool(name = "list_sprints", description = "Lists the sprints of one Jira Software board, 25 per page: id, name "
+            + "and goal as written by Jira users (untrusted data), state (future, active, closed) and the start, end "
+            + "and completion time. Refused like a missing board when the board covers a project the caller may not "
+            + "read. Boards without sprints (kanban) are refused. Pass nextCursor back to get the next page.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("List sprints")
+    public PagedResult<SprintItem> listSprints(
+            @ToolParam(description = "Board id from list_boards, digits")
+            @ArgumentLimits(minLength = 1, maxLength = 18, pattern = NUMERIC_ID_PATTERN)
+            String boardId,
+            @ToolParam(description = "Only sprints in this state: active, future or closed", required = false)
+            @ArgumentLimits(minLength = 6, maxLength = 6, pattern = SPRINT_STATE_PATTERN)
+            String state,
+            @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
+            @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
+            String cursor) {
+        String fingerprint = CursorCodec.fingerprint("list_sprints", boardId, state);
+        int startAt = position(cursor, "list_sprints", fingerprint);
+        requireBoardAllowed(boardId);
+        SprintPage page = useCase.listSprints(boardId, state, startAt);
+        List<SprintItem> items = page.sprints().stream().map(SprintItem::of).toList();
+        boolean truncated = items.stream().anyMatch(sprint -> sprint.name().truncated()
+                || sprint.goal() != null && sprint.goal().truncated());
+        return new PagedResult<>(items, nextCursor("list_sprints", fingerprint, page.nextStartAt()), truncated, List.of());
+    }
+
+    @Tool(name = "list_sprint_issues", description = "Lists the issues of one Jira Software sprint: about 25 per page "
+            + "(key, type, status, assignee username, last update time, summary as written by Jira users, marked as "
+            + "untrusted data). Issues the platform policy does not allow are left out, so a page can be shorter or "
+            + "hold up to 49 when the server reads further pages to fill it. Refused like a missing sprint when its "
+            + "board covers a project the caller may not read. Pass nextCursor back to get the next page.")
+    @ToolRisk(RiskLevel.READ_ONLY)
+    @ToolTitle("List sprint issues")
+    public PagedResult<IssueListItem> listSprintIssues(
+            @ToolParam(description = "Sprint id from list_sprints, digits")
+            @ArgumentLimits(minLength = 1, maxLength = 18, pattern = NUMERIC_ID_PATTERN)
+            String sprintId,
+            @ToolParam(description = "nextCursor of the previous page, unchanged", required = false)
+            @ArgumentLimits(maxLength = CursorCodec.MAX_CURSOR_LENGTH, pattern = CursorCodec.ARGUMENT_PATTERN)
+            String cursor) {
+        String fingerprint = CursorCodec.fingerprint("list_sprint_issues", sprintId);
+        int startAt = position(cursor, "list_sprint_issues", fingerprint);
+        requireBoardAllowed(useCase.sprintBoardId(sprintId));
+        PageFiller.Filled<JiraIssue> page = PageFiller.fill(cursor == null ? null : Integer.toString(startAt),
+                JiraService.PAGE_SIZE, FILL_READS,
+                from -> {
+                    IssueSearchResult found = useCase.sprintIssues(sprintId, from == null ? 0 : Integer.parseInt(from));
+                    return new PageFiller.BackendPage<>(found.issues(),
+                            found.nextStartAt() == null ? null : found.nextStartAt().toString());
+                },
+                rows -> policy.retainAllowedById(JiraResourceModel.ISSUE_TYPE, rows, JiraIssue::key));
+        return PagedResult.of(page.items().stream().map(JiraToolViews::listItem).toList(),
+                nextCursor("list_sprint_issues", fingerprint, page.next() == null ? null : Integer.valueOf(page.next())));
+    }
+
     // ---- changes (UPDATE) ----
 
     @Tool(name = "add_comment", description = "Adds a comment to one Jira issue as the calling user. The text is "
@@ -586,6 +825,68 @@ public class JiraTool {
         return new WorklogCreatedView(key, worklog.id(), JiraToolViews.name(worklog.timeSpent()));
     }
 
+    @Tool(name = "add_watcher", description = "Adds a watcher to one Jira issue: the given user, or the calling user "
+            + "when no username is given. Jira decides who may change the watcher list of an issue. Returns the key Jira "
+            + "knows the issue under and the username that was added.")
+    @ToolRisk(RiskLevel.UPDATE)
+    @ToolTitle("Add watcher")
+    public WatcherView addWatcher(
+            @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey,
+            @ToolParam(description = "Username of the watcher; the calling user when omitted", required = false)
+            @ArgumentLimits(minLength = 1, maxLength = MAX_USERNAME)
+            String username) {
+        gate.requireWritable();
+        optional(username, USERNAME, "username must be a username of 1-100 characters");
+        String key = resolved(issueKey).key();
+        return new WatcherView(key, JiraToolViews.username(useCase.addWatcher(key, username)));
+    }
+
+    /** Only the caller can stop watching: silently unsubscribing someone else is not something an agent is offered. */
+    @Tool(name = "unwatch_issue", description = "Stops the calling user watching one Jira issue. Other users cannot "
+            + "be removed with this tool. Returns the key Jira knows the issue under and the username of the calling "
+            + "user. Jira refuses the call when it does not accept it, for example for a user who is not watching.")
+    @ToolRisk(RiskLevel.UPDATE)
+    @ToolTitle("Unwatch issue")
+    public WatcherView unwatchIssue(
+            @ToolParam(description = "Issue key: project key, '-', number, e.g. ABC-12")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String issueKey) {
+        gate.requireWritable();
+        String key = resolved(issueKey).key();
+        return new WatcherView(key, JiraToolViews.username(useCase.removeWatcher(key)));
+    }
+
+    @Tool(name = "detach_issue_link", description = "Removes one link between two Jira issues, given by link id and "
+            + "by the keys of both issues; the link must join exactly these two issues (in either order). The caller "
+            + "needs access to both issues. Repeating the call fails because the link no longer exists.")
+    @ToolRisk(RiskLevel.UPDATE)
+    @ToolTitle("Detach issue link")
+    public UnlinkView detachIssueLink(
+            @ToolParam(description = "Key of the outward issue, e.g. ABC-12")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String outwardIssueKey,
+            @ToolParam(description = "Key of the inward issue, e.g. ABC-13")
+            @ArgumentLimits(minLength = 4, maxLength = JiraResourceModel.ISSUE_KEY_MAX_LENGTH,
+                    resourceType = JiraResourceModel.ISSUE_TYPE)
+            @ResourceRef(type = JiraResourceModel.ISSUE_TYPE) String inwardIssueKey,
+            @ToolParam(description = "Id of the link, digits")
+            @ArgumentLimits(minLength = 1, maxLength = 18, pattern = NUMERIC_ID_PATTERN)
+            String linkId) {
+        gate.requireWritable();
+        String outward = resolved(outwardIssueKey).key();
+        String inward = resolved(inwardIssueKey).key();
+        if (outward.equals(inward)) {
+            throw new InvalidToolArgumentException("An issue cannot be linked to itself.");
+        }
+        useCase.removeIssueLink(linkId, inward, outward);
+        return new UnlinkView(outward, inward, linkId);
+    }
+
     /**
      * Deletion cannot be undone, so the risk is DESTRUCTIVE: the gateway asks for the one-time code and the policy
      * checks the {@code delete} action on the issue. Nothing here asks "are you sure"; the confirmation is not the
@@ -630,6 +931,17 @@ public class JiraTool {
     private static JiraIssue resolved(String issueKey) {
         return ResourceContext.current().orElseThrow()
                 .fetched(JiraResourceModel.ISSUE_TYPE, issueKey, JiraIssue.class).orElseThrow();
+    }
+
+    /**
+     * A board is shown only when every project it covers is allowed to the caller by the same policy that judges the
+     * project of {@code search_issues}; a board without a readable project is refused like a missing one.
+     */
+    private void requireBoardAllowed(String boardId) {
+        List<String> keys = useCase.boardProjectKeys(boardId);
+        if (keys.isEmpty() || policy.retainAllowedById(JiraResourceModel.PROJECT_TYPE, keys, key -> key).size() != keys.size()) {
+            throw new NotFoundOrDeniedException();
+        }
     }
 
     /** The offset a cursor carries, 0 without one. A cursor of another user, tool or query is refused by the codec. */

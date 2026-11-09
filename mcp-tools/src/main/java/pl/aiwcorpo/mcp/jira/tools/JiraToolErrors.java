@@ -61,6 +61,9 @@ public class JiraToolErrors implements ToolErrorMapping {
                 case RESTRICTED_COMMENT -> "The comment has a visibility restriction this tool cannot reproduce; "
                         + "edit it in Jira.";
                 case WORKLOG -> "Jira refused the work log entry; check the time format and that work logging is on.";
+                case SPRINTS -> "Jira refused the request; the board may not support sprints.";
+                case WATCHER -> "Jira refused the change of the watcher list; the user may not exist or watching may be switched off.";
+                case UNLINK -> "Jira refused to remove the link.";
             }));
         }
         return Optional.empty();
