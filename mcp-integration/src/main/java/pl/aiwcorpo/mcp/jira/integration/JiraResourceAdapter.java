@@ -1228,9 +1228,11 @@ public class JiraResourceAdapter implements JiraResourcePort {
                 entries.add(all.get(i).toDomain());
             }
             Integer total = changelog == null ? null : changelog.total();
-            Integer jiraPageSize = changelog == null ? null : changelog.maxResults();
-            boolean incomplete = total != null ? total > all.size() : jiraPageSize != null && all.size() >= jiraPageSize;
-            return new ChangelogPage(entries, end < all.size() ? end : null, incomplete);
+            // A move to another project may sit in the part Jira did not return, and then any entry here may predate it.
+            if (total == null || total > all.size()) {
+                return new ChangelogPage(List.of(), null, true);
+            }
+            return new ChangelogPage(entries, end < all.size() ? end : null, false);
         }
     }
 

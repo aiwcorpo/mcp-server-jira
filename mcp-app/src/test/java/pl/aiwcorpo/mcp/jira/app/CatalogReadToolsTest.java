@@ -103,17 +103,17 @@ class CatalogReadToolsTest extends ServerTestSupport {
     }
 
     @Test
-    void anIncompleteHistoryShowsOnlyFieldsThatDoNotDependOnTheProject() {
+    void anIncompleteHistoryReturnsNoEntries() {
         try (McpSyncClient client = clientWithCredential(PAT)) {
+            // ABC-66: total above the histories returned; ABC-67: no total at all.
             for (String key : List.of("ABC-66", "ABC-67")) {
                 McpSchema.CallToolResult result = call(client, "get_issue_changelog", Map.of("issueKey", key));
 
                 JsonNode page = json(result);
                 assertThat(page.at("/omitted/0").asString()).as(key).isEqualTo("history_incomplete");
-                assertThat(page.at("/items")).as(key + ": the entry with a Component/s change only is gone").hasSize(1);
-                assertThat(page.at("/items/0/changes")).extracting(change -> change.get("field").asString())
-                        .containsExactly("summary", "Parent");
-                assertThat(text(result)).as(key).doesNotContain("HR only", "Security Level", "Backend");
+                assertThat(page.at("/items")).as(key).isEmpty();
+                assertThat(page.at("/nextCursor").isNull() || page.at("/nextCursor").isMissingNode()).as(key).isTrue();
+                assertThat(text(result)).as(key).doesNotContain("HR only", "Security Level", "Backend", "summary");
             }
         }
     }

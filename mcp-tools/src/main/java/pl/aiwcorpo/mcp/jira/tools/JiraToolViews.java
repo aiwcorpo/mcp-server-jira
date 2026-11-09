@@ -174,12 +174,10 @@ final class JiraToolViews {
          * show either.
          *
          * @param readableProjects keys of the projects named in the page that the policy allows the caller to read
-         * @param historyIncomplete only changes of fields that do not depend on the project are shown, besides references
          */
-        static java.util.Optional<ChangelogItem> of(ChangelogEntry entry, java.util.Set<String> readableProjects,
-                boolean historyIncomplete) {
+        static java.util.Optional<ChangelogItem> of(ChangelogEntry entry, java.util.Set<String> readableProjects) {
             List<FieldChangeItem> changes = entry.changes().stream()
-                    .map(change -> visible(change, historyIncomplete, readableProjects))
+                    .map(change -> visible(change, readableProjects))
                     .flatMap(java.util.Optional::stream).limit(MAX_CHANGES_PER_ENTRY).toList();
             if (changes.isEmpty()) {
                 return java.util.Optional.empty();
@@ -196,7 +194,7 @@ final class JiraToolViews {
                             || c.to() != null && c.to().truncated());
         }
 
-        private static java.util.Optional<FieldChangeItem> visible(ChangelogEntry.FieldChange change, boolean historyIncomplete,
+        private static java.util.Optional<FieldChangeItem> visible(ChangelogEntry.FieldChange change,
                 java.util.Set<String> readableProjects) {
             String field = name(change.field());
             if (refersToOtherResources(change.field())) {
@@ -205,9 +203,6 @@ final class JiraToolViews {
                 return pureReadableKeys(change.from(), readableProjects) && pureReadableKeys(change.to(), readableProjects)
                         ? java.util.Optional.of(item(field, change.from(), change.to(), readableProjects))
                         : java.util.Optional.empty();
-            }
-            if (historyIncomplete && !projectIndependent(change.field())) {
-                return java.util.Optional.empty();
             }
             return java.util.Optional.of(item(field, change.from(), change.to(), readableProjects));
         }
@@ -223,15 +218,6 @@ final class JiraToolViews {
 
     private static final java.util.regex.Pattern ISSUE_KEY_IN_TEXT = java.util.regex.Pattern
             .compile("(?<![A-Za-z0-9_])[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,9}(?![A-Za-z0-9_])");
-
-    /** Fields whose values mean the same in every project; all others may describe the project the issue was once in. */
-    private static final java.util.Set<String> PROJECT_INDEPENDENT_FIELDS = java.util.Set.of("summary", "description",
-            "environment", "priority", "status", "resolution", "assignee", "reporter", "labels", "duedate", "timeestimate",
-            "timeoriginalestimate", "timespent");
-
-    static boolean projectIndependent(String field) {
-        return field != null && PROJECT_INDEPENDENT_FIELDS.contains(field.toLowerCase(java.util.Locale.ROOT));
-    }
 
     /**
      * Fields whose old and new value point at other issues or projects (Link, Parent, Parent Link, Epic Link, Epic Child,

@@ -392,9 +392,9 @@ public class JiraTool {
             + "<hidden-issue>. A change of a field that points at other issues or projects (Link, Parent, Epic Link, "
             + "project ...) is left out whole unless its value is nothing but readable issue keys, and an entry without "
             + "visible changes is left out, so a page can be shorter than 25. The entry of the last change of the project "
-            + "field and all older entries are not returned. When Jira returns less history than it holds, omitted "
-            + "holds history_incomplete and only changes of project-independent fields (summary, description, status, "
-            + "priority, assignee, labels and the like) are shown. Pass nextCursor back to get the next page.")
+            + "field and all older entries are not returned. When Jira returns less history than it holds, or does not say "
+            + "how much it holds, the result has no entries and omitted holds history_incomplete. Pass nextCursor back "
+            + "to get the next page.")
     @ToolRisk(RiskLevel.READ_ONLY)
     @ToolTitle("Get issue changelog")
     public PagedResult<ChangelogItem> getIssueChangelog(
@@ -418,7 +418,7 @@ public class JiraTool {
         List<ChangelogItem> items = new java.util.ArrayList<>();
         boolean truncated = false;
         for (ChangelogEntry entry : page.entries()) {
-            var item = ChangelogItem.of(entry, readableProjects, page.historyIncomplete());
+            var item = ChangelogItem.of(entry, readableProjects);
             if (item.isPresent()) {
                 items.add(item.get());
                 truncated |= ChangelogItem.truncated(entry, item.get());
