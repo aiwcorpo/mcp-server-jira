@@ -31,13 +31,41 @@ anonymous `serverInfo`. It never opens them for a version known to be untested. 
 
 ## Tools
 
-19 tools: 9 `READ_ONLY`, 9 `UPDATE` and 1 `DESTRUCTIVE` (`delete_issue`, which needs the confirmation code the gateway checks). A client
+32 tools: 19 `READ_ONLY`, 12 `UPDATE` and 1 `DESTRUCTIVE` (`delete_issue`, which needs the confirmation code the gateway checks). A client
 sees them as `jira__<name>`. The generated table with each tool's title, risk, action and required group is in
 `docs/reference/tools.md` of the `mcp-docs` repository (link below). It is not repeated here.
 
-Reads cover issues, comments, transitions, projects, assignable users, worklogs and attachment metadata. Writes cover
-comments, transitions, creating and editing issues, assignment, links and worklogs. Search queries are built by the server
-from structured arguments; no tool accepts raw JQL.
+Reads cover issues, comments, transitions, projects, assignable users, worklogs and attachment metadata, and since 2.0.0 also the
+change history of an issue (`get_issue_changelog`), the statuses of a project per issue type (`list_statuses`), the issue types a
+project offers for creating issues (`list_issue_types`) and the fields of one of them (`get_create_fields`: id, name, whether it
+is required, schema type, at most 20 allowed values per field), link types (`list_link_types`), the account behind the credential
+(`get_current_user`, no e-mail) and the text of an attachment (`read_attachment`). Writes cover comments, transitions, creating
+and editing issues, assignment, links, worklogs and watchers. Search queries are built by the server from structured arguments;
+no tool accepts raw JQL.
+
+`read_attachment` returns text types only (`text/*`, JSON, XML), up to 200000 bytes, cut at 50000 characters; other files come back
+empty with `omitted` set to `binary_attachment` or `attachment_too_large`. The file is downloaded from the configured Jira
+address, never from the `content` link in Jira's answer.
+
+`add_watcher` adds the given user, or the caller when no username is given. `unwatch_issue` removes the caller only: a tool that
+takes other users off a watcher list is not offered. `detach_issue_link` removes one link by id and needs the keys of both linked
+issues as well, as `link_issues` does; the link must join exactly these two issues. No tool lists link ids yet. The names are not
+`remove_*` and `unlink_*` because the starter classifies tools with such words as `DESTRUCTIVE`.
+
+### Boards and sprints
+
+`list_boards`, `list_sprints` and `list_sprint_issues` use the Agile REST API (`/rest/agile/1.0`) of Jira Software and fail like a
+missing resource on an instance without it. Boards and sprints are not resources of the policy, so they are judged by the projects
+behind them:
+
+| Tool | Argument | Judged by |
+| --- | --- | --- |
+| `list_boards` | `project` | the project (as `search_issues`); boards located in a project the policy does not allow are left out |
+| `list_sprints` | `boardId` | every project of the board (`/board/{id}/project`) |
+| `list_sprint_issues` | `sprintId` | every project of the board the sprint belongs to, then each issue by the issue policy, as `search_issues` does |
+
+A board with a project the caller may not read, with no readable project, or with more than 50 projects is refused as
+`not_found_or_denied`, the same answer as for a board that does not exist.
 
 ## Build and test
 
