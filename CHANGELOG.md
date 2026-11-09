@@ -26,14 +26,17 @@ Major release: the policies of the server live in this repository. Built on `mcp
   `StateDirectory` of the unit. Added: `MCP_GATEWAY_POLICY_DATA_URL` (and `MCP_GATEWAY_TLS_NAME` when the host in it is not a name of the
   gateway certificate). The server connects to the gateway for the policy data with its own certificate, which now needs the usage
   `clientAuth` next to `serverAuth` (CN `mcp-jira`, SAN `mcp-jira.internal`).
-- 13 new tools, 32 in all (19 `READ_ONLY`, 12 `UPDATE`, 1 `DESTRUCTIVE`). Context for issues and creating them: `get_issue_changelog`,
+- 13 new tools, 32 in all (19 `READ_ONLY`, 11 `UPDATE`, 2 `DESTRUCTIVE`). Context for issues and creating them: `get_issue_changelog`,
   `list_statuses`, `list_issue_types`, `get_create_fields`, `list_link_types`, `get_current_user` and `read_attachment` (text types,
   200000 bytes, cut at 50000 characters). Create metadata uses the endpoints of Data Center 8.4 and later.
 - Jira Software: `list_boards`, `list_sprints` and `list_sprint_issues` over the Agile REST API 1.0. A board is judged by the
   projects behind it and a sprint by its board; a board with a project the caller may not read is refused like a missing one, and the
   issues of a sprint are filtered one by one as in `search_issues`.
-- Watchers and links: `add_watcher`, `unwatch_issue` (removes the caller only) and `detach_issue_link` (by link id, authorized on both
-  issues like `link_issues`), all `UPDATE`. They are not called `remove_*` or `unlink_*` because the starter makes such tools `DESTRUCTIVE`.
+- Watchers and links: `add_watcher` and `unwatch_issue` (removes the caller only), both `UPDATE`, and `remove_issue_link` (by link id, on both
+  issues like `link_issues`), which is `DESTRUCTIVE` like `delete_issue`. `get_issue` returns `links` (id, type, direction, key of the other issue)
+  for the issues the caller may read, at most 50 with `linksTruncated`.
+- `get_issue_changelog` redacts values of reference fields (Link, Parent, Epic Link, Key, project ...) that name an issue the caller may not read
+  (`redacted`). A board whose project list Jira does not return in full is refused like a missing board.
 - `deploy/` has `compose.yaml`, `mcp-jira.env` and `certs/` next to the systemd files, and the procedure that adds the system
   `jira` in the broker and the server `mcp-jira` in the gateway without restarting anything.
 - `.run/` has IntelliJ configurations for the server and for the `LocalGateway` of `mcp-platform-test`, with the policies directory and a scope mapping.

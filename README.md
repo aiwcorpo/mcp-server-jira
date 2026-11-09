@@ -31,7 +31,7 @@ anonymous `serverInfo`. It never opens them for a version known to be untested. 
 
 ## Tools
 
-32 tools: 19 `READ_ONLY`, 12 `UPDATE` and 1 `DESTRUCTIVE` (`delete_issue`, which needs the confirmation code the gateway checks). A client
+32 tools: 19 `READ_ONLY`, 11 `UPDATE` and 2 `DESTRUCTIVE` (`delete_issue` and `remove_issue_link`, which need the confirmation code the gateway checks). A client
 sees them as `jira__<name>`. The generated table with each tool's title, risk, action and required group is in
 `docs/reference/tools.md` of the `mcp-docs` repository (link below). It is not repeated here.
 
@@ -47,10 +47,18 @@ no tool accepts raw JQL.
 empty with `omitted` set to `binary_attachment` or `attachment_too_large`. The file is downloaded from the configured Jira
 address, never from the `content` link in Jira's answer.
 
+`get_issue` also lists the links of the issue (link id, type name, direction with its sentence, key of the other issue; at most 50,
+`linksTruncated`). Links to issues the caller may not read are dropped before the limit, so neither their keys nor their number show.
+
+`get_issue_changelog` leaves out (null) the old and new value of fields that point at other issues or projects (Link, Parent, Epic
+Link, Key, Sub-task and similar names) when they name an issue the caller may not read, and marks the change `redacted`. The
+`project` field is always left out, because it holds names that cannot be judged by key.
+
 `add_watcher` adds the given user, or the caller when no username is given. `unwatch_issue` removes the caller only: a tool that
-takes other users off a watcher list is not offered. `detach_issue_link` removes one link by id and needs the keys of both linked
-issues as well, as `link_issues` does; the link must join exactly these two issues. No tool lists link ids yet. The names are not
-`remove_*` and `unlink_*` because the starter classifies tools with such words as `DESTRUCTIVE`.
+takes other users off a watcher list is not offered. `remove_issue_link` is `DESTRUCTIVE` like `delete_issue`: it needs the destructive
+group, the project scope on both issues and the confirmation code, which is bound to the keys in the arguments (an issue that was
+moved is refused until the call names its current key). It removes one link by id and takes the keys of both linked issues, as
+`link_issues` does; the link must join exactly these two issues. Link ids come from `get_issue`.
 
 ### Boards and sprints
 
@@ -64,7 +72,8 @@ behind them:
 | `list_sprints` | `boardId` | every project of the board (`/board/{id}/project`) |
 | `list_sprint_issues` | `sprintId` | every project of the board the sprint belongs to, then each issue by the issue policy, as `search_issues` does |
 
-A board with a project the caller may not read, with no readable project, or with more than 50 projects is refused as
+A board with a project the caller may not read, with no readable project, with more than 50 projects, or whose project list Jira
+does not return in full (`isLast` false or `total` above the keys returned) is refused as
 `not_found_or_denied`, the same answer as for a board that does not exist.
 
 ## Build and test
