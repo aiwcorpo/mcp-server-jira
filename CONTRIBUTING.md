@@ -14,7 +14,7 @@ through WSL2.
 ./mvnw -B verify     # the same command runs in CI
 ```
 
-`docs/developer/tools.md` in `mcp-docs` describes how to add a tool. A new tool needs: `@ToolTitle`, `@ToolRisk`,
+The page "Write a server from the template" (https://mcp.aiwcorpo.pl/2.0/developers/guides/server-from-template/#write-a-tool) describes how to add a tool. A new tool needs: `@ToolTitle`, `@ToolRisk`,
 `@ResourceRef` on the argument that names the resource, a closed argument schema, a test class in the style of
 `ReadToolsTest` or `WriteToolsTest`, and its name in the tools table of the README.
 
