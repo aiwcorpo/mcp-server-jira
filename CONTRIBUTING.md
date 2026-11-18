@@ -87,6 +87,17 @@ Connect an MCP client to the gateway with `Authorization: Bearer <your PAT>`. Ed
 of `LocalGateway` for your project keys, and restart `LocalGateway` after a change to the policies. The configurations need the
 `4.0.0` starter artifacts in `~/.m2`. `MCP_JIRA_ALLOW_PLAIN_HTTP=true` allows `http` and exists for the mocks of the development stack.
 
+## Release
+
+A pushed tag `v<version>` runs `.github/workflows/release.yml`, which pushes the image to `ghcr.io/aiwcorpo/mcp-server-jira`
+and creates the GitHub Release from the tagged commit. The workflow cannot check who pushed the tag or whether the commit was
+reviewed; these repository settings are the release approval and must be in place before the first tag:
+
+1. Settings > Environments: `release` with required reviewers, "Prevent self-review" on, and deployment branches and tags
+   limited to tags `v*`.
+2. Settings > Rules > Rulesets: a tag ruleset for `v*` that restricts creation, update and deletion to the release maintainers.
+3. Package settings of `mcp-server-jira` on ghcr.io: write access only for this repository and the release maintainers.
+
 ## Commits
 
 Subject in English, imperative, up to 72 characters. The body describes the change, not the process. Tests go in the
