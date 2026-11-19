@@ -4,7 +4,7 @@ mcp-jira is the MCP server for Jira Data Center in [MCP Platform](https://github
 gateway calls it (internal JWT, policy data pushed to `POST /.well-known/mcp-policy-data`); it calls Jira REST API v2 and
 the Agile API 1.0 with the caller's own personal access token. Its interfaces follow `mcp-contracts`
 (`server-manifest.schema.json`, `internal-jwt.schema.json`, `tool-error.schema.json`, `openapi/mcp-server.v1.yaml`) through
-`mcp-platform-starter` 4.0.0 from `mcp-starter-lib`.
+`mcp-platform-starter` 4.1.0 from `mcp-starter-lib`.
 
 ## Commands
 

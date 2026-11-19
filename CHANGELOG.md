@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.1 - 2026-11-19
+
+Patch release on `mcp-platform-starter` 4.1.0 and `mcp-contracts` 7.2.0, with newer Tomcat, Jackson, Spring, Netty, Log4j and Guava releases. The manifest is unchanged apart from its version, so an approved 2.0.0 stays approved.
+
+- Raised `mcp-platform-starter` to 4.1.0 (which brings `mcp-contracts` 7.2.0).
+- Overrode the Tomcat, Jackson, Spring, Netty, Log4j and Guava versions that Spring Boot 4.1.0 and cedar-java bring with releases older than published security fixes (#5).
+- The release workflow refuses to push an image when a GitHub Release or image tag for the version already exists (#6).
+- GitLab merge-request pipelines read a Maven cache of their own and never upload it (#7).
+- `CONTRIBUTING.md` lists the repository settings the release workflow relies on (#4).
+
 ## 2.0.0
 
 Major release: the policies of the server live in this repository. Built on `mcp-platform-starter` 4.0.0 and `mcp-contracts` 7.0.0.

@@ -85,7 +85,7 @@ Fixtures for 9.12 and 11.3 are written from the vendor documentation, not record
 the mapping in `.run/scope-mapping.json`), then `McpJira (dev, behind LocalGateway)` with `MCP_JIRA_URL` set to your Jira.
 Connect an MCP client to the gateway with `Authorization: Bearer <your PAT>`. Edit `.run/scope-mapping.json` and the `--groups`
 of `LocalGateway` for your project keys, and restart `LocalGateway` after a change to the policies. The configurations need the
-`4.0.0` starter artifacts in `~/.m2`. `MCP_JIRA_ALLOW_PLAIN_HTTP=true` allows `http` and exists for the mocks of the development stack.
+`4.1.0` starter artifacts in `~/.m2`. `MCP_JIRA_ALLOW_PLAIN_HTTP=true` allows `http` and exists for the mocks of the development stack.
 
 ## Release
 
